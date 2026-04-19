@@ -89,29 +89,35 @@ Before any `git push`:
 Step 6 is **machine-enforced** by the git pre-push hook (installed via `bash scripts/setup_hooks.sh`).
 The hook blocks the push if it exits non-zero. This cannot be forgotten.
 
-After `git push`, immediately run:
-```bash
-gh run watch $(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
-```
-This blocks the terminal until CI completes and exits non-zero on failure (Rule 18).
-Do not switch tasks while this is running.
+Use `bash scripts/push.sh` instead of `git push`. It pushes and immediately
+runs `gh run watch` — the terminal blocks until CI completes (Rule 18 enforced).
 
-## Rule 8a — Enforcement Tiers
+## Rule 8a — Every Rule Must Be Enforced
 
-Rules in this framework fall into three tiers:
+A rule that is not enforced is not a rule — it is a suggestion, and suggestions get
+ignored under pressure. There is no "behavioural" tier. Every rule must be backed by
+a mechanism that makes violation impossible or immediately visible.
 
-| Tier | Enforcement | Examples |
-|------|-------------|---------|
-| **Hard** | Machine blocks the action — cannot proceed without fixing | Rule 8 Step 6 (pre-push hook), Rule 19 (branch protection blocks merge) |
-| **Scripted** | Script runs but requires human to invoke | Rules 1/16 (assertion grep), Rule 12 (company name scan) |
-| **Behavioural** | Documentation only — relies on discipline | Rule 18 (CI monitoring), Rule 20 (Opus audit at session start) |
+| Enforcement mechanism | How it works | Examples |
+|----------------------|--------------|---------|
+| **Script blocks the action** | Non-zero exit stops the workflow | pre-push hook → `verify_bug_markers.py`, `scripts/push.sh` → `gh run watch` |
+| **CI blocks the merge** | Branch protection requires green gate | Rule 19 — quality gate job must pass before GitHub allows merge |
+| **Script must be run** | Documented in Rule 8 checklist; hook or wrapper invokes it | Company name scan, YAML parse, collect-only |
 
-**Goal: push every rule up the tier ladder.** A behavioural rule that keeps being violated
-must become scripted. A scripted rule that keeps being skipped must become hard.
+**If a rule keeps being violated, the fix is never "more discipline" — it is a stronger
+enforcement mechanism.** Promote the rule to the next level:
+- Violated behavioural rule → write a script
+- Script keeps being skipped → put it in the git hook or push wrapper
+- Hook keeps being bypassed → enforce it in CI so the PR cannot merge
 
-The git pre-push hook exists because Rule 8 Step 6 was being skipped during rebases.
-If Rule 18 (CI monitoring) is violated again, the next step is a post-push wrapper script
-that calls `gh run watch` automatically after every push.
+**Current enforcement map:**
+- Rule 8 Step 6 (xfail markers): `scripts/verify_bug_markers.py` in git pre-push hook — **blocks push**
+- Rule 18 (CI monitoring): `scripts/push.sh` calls `gh run watch` after every push — **blocks terminal until CI completes**
+- Rule 19 (no merge with failures): GitHub branch protection + quality gate job — **blocks merge**
+- Rule 12 (company name scan): in Rule 8 checklist, run before push — **scripted**
+
+Use `bash scripts/push.sh` instead of `git push` on this project.
+Use `bash scripts/setup_hooks.sh` once after cloning to install the pre-push hook.
 
 ## Rule 9 — No Direct Pushes to Main
 

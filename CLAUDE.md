@@ -37,9 +37,9 @@ find and report bugs, not to make tests pass.
 5. Spawn Opus audit — ask: "Current state vs spec? Gaps? What must happen next?" (Rule 20)
 6. Act on Opus's direction before starting any new implementation
 
-### Before every push (mandatory gate — Rule 8):
-Run all 6 steps in Rule 8. Step 6 (`python scripts/verify_bug_markers.py`) is the guard
-that catches xfail markers silently dropped during rebases or merges. Non-zero exit = do not push.
+### Before and after every push (Rule 8 + Rule 18):
+Use `bash scripts/push.sh` — not `git push`. It runs the pre-push hook (xfail check)
+and then watches CI to completion. Both are enforced, not optional.
 
 ### Acknowledged changes must be committed immediately (Rule 25):
 Any change agreed upon in conversation must be written to a file before the next commit.
