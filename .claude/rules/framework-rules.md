@@ -221,3 +221,87 @@ with responses.activate():
     responses.add(responses.GET, url, json=[...], status=200)
     resp = client.get("/name/germany")
 ```
+
+## Rule 18 — Mandatory CI Monitoring After Every Push
+
+After every `git push` or PR creation, immediately monitor CI until all checks
+complete. Do NOT move to the next task while CI is running.
+
+```bash
+gh pr checks <PR_NUMBER> --watch   # blocks until all checks complete
+gh pr checks <PR_NUMBER>           # one-shot status read
+```
+
+For every failed check:
+1. Categorize the failure (ENV_FAILURE / QUALITY_FAILURE / STRUCTURAL_FAILURE)
+2. If QUALITY_FAILURE or STRUCTURAL_FAILURE: file a GitHub issue (Rule 19)
+3. Root-cause and fix before moving on
+4. Do NOT merge a PR with an unresolved non-ENV failure
+
+This rule exists because PRs were being pushed and abandoned without monitoring,
+leaving failures undiscovered until the user asked.
+
+## Rule 19 — Every CI Failure Must Become a GitHub Issue Before Merge
+
+When CI fails with QUALITY_FAILURE or STRUCTURAL_FAILURE:
+1. File a GitHub issue immediately using `gh issue create`
+2. Label: `bug` + `quality-failure` or `structural-failure`
+3. Title format: `[BUG] <test_name> — <one-line description>`
+4. Body: 5-section format (Title, Steps, Expected, Actual, Data)
+5. For known API bugs where test is correct: mark test `@pytest.mark.xfail(strict=True, reason="Known API bug #<issue>: ...")`
+6. PR cannot be merged until every failure is either fixed or has an open GitHub issue with `xfail` marker
+
+`xfail(strict=True)` means: test runs, expected to fail (bug documented), but if
+the API fixes the bug the test becomes `xpass` which alerts us to remove the marker.
+
+## Rule 20 — Session Start Protocol (Opus Project Audit)
+
+Every new session MUST begin with an Opus audit before any implementation work.
+This is the fix for Opus being a one-shot reviewer instead of an always-on overseer.
+
+The session start protocol:
+1. Read `CLAUDE_LOG.md` for current phase status
+2. Run `gh pr list` and `gh pr checks` on all open PRs
+3. Run `gh issue list --label bug` for unfiled known bugs
+4. Spawn `Agent(model="opus")` with: DELIVERABLES.md, open PR status, open issues,
+   CLAUDE_LOG.md, and ask: "What is the current project state vs spec? What must
+   happen next? What gaps or process violations are you seeing?"
+5. Act on Opus's direction before starting any new implementation
+
+This rule exists because Opus has no persistent state — it only knows what is
+in its prompt. The session start protocol ensures Opus always has full context
+before advising.
+
+## Rule 21 — SLA Violations Are Bugs, Not Flakiness
+
+Response time SLAs are defined in `config/environments.yaml` under
+`thresholds.max_response_time`. An endpoint that consistently exceeds this
+threshold is violating its SLA contract — that is a bug, not transient noise.
+
+**Distinction:**
+- `@pytest.mark.flaky(reruns=2)` is for *transient* network issues (ENV_FAILURE:
+  one-off timeout, DNS blip). A single retry is acceptable.
+- If a test fails on **all reruns** (all 3 attempts), the failure is *consistent*
+  and must be treated as a confirmed bug, not a flaky ENV_FAILURE.
+
+**Protocol when a performance or timeout test exhausts all reruns:**
+1. Categorize as `SLA_VIOLATION` (sub-type of QUALITY_FAILURE)
+2. File a GitHub issue immediately:
+   - Label: `bug`, `sla-violation`
+   - Title: `[BUG] SLA: <endpoint> response time > <threshold>ms consistently`
+   - Body: test name, measured times across all attempts, threshold, environment
+3. Mark the test `@pytest.mark.xfail(strict=True, reason="SLA violation #<issue>...")`
+   so CI can pass while the bug is tracked
+4. Do NOT raise `max_response_time` in YAML to make the test pass — that hides the bug
+
+```python
+# CORRECT — SLA from config, never hardcoded
+max_ms = env_config["thresholds"]["max_response_time"] * 1000
+assert resp.response_time_ms < max_ms, (
+    f"SLA violation: {resp.response_time_ms:.0f}ms > {max_ms:.0f}ms. "
+    f"File as bug if consistently failing across reruns."
+)
+
+# FORBIDDEN — hiding the SLA
+max_ms = 10_000  # raised to "fix" the test
+```
