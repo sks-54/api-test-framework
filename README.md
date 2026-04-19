@@ -398,9 +398,9 @@ api-test-framework/
 ├── CLAUDE_LOG.md                   # Phase log: decisions, corrections, Opus reviews, bugs
 ├── DELIVERABLES.md                 # Spec requirements tracker (Opus-monitored)
 ├── BUG_REPORT.md                   # All filed bugs: format, status, curl reproduction
-├── ENHANCEMENTS.md                 # Post-v1.0.0 roadmap
+├── ENHANCEMENTS.md                 # Post-v2.0.0.0 roadmap
 ├── INSTALL.md                      # Platform-specific install guide (macOS · Linux · Windows)
-├── TEST_PLAN.md                    # Full test plan (38 planned cases; 31 implemented in v1.0.0)
+├── TEST_PLAN.md                    # Full test plan (38 planned cases; 31 implemented in v2.0.0.0)
 ├── pytest.ini                      # markers, addopts (-v --tb=short)
 ├── pyproject.toml                  # Installable package (pip install -e ".[test]")
 └── requirements.txt                # Pinned dependencies (legacy fallback)
@@ -2179,5 +2179,5 @@ See `scripts/advisor_review.py` for the SDK integration pattern.
 
 ---
 
-*Tagged v1.0.0 on 2026-04-19 — all DELIVERABLES.md items complete.*
-*Post-v1.0.0 roadmap tracked in ENHANCEMENTS.md.*
+*Tagged v2.0.0.0 on 2026-04-19 — all DELIVERABLES.md items complete.*
+*Post-v2.0.0.0 roadmap tracked in ENHANCEMENTS.md.*

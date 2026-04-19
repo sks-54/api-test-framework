@@ -86,8 +86,8 @@
 - [x] `INSTALL.md` — platform-specific guide (macOS/Linux/Windows)
 - [x] `wiki/` — 6 reference pages (Components, Skills, Bug Lifecycle, Design Decisions, Rules, Troubleshooting)
 - [x] `pyproject.toml` — installable package (`pip install -e ".[test]"`)
-- [x] Tagged `v1.0.0` once all items above are checked
-- [x] `ENHANCEMENTS.md` tracking post-v1.0.0 roadmap
+- [x] Tagged `v2.0.0.0` once all items above are checked
+- [x] `ENHANCEMENTS.md` tracking post-v2.0.0.0 roadmap
 
 ---
 
