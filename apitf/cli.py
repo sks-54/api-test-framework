@@ -335,15 +335,41 @@ Framework rules (non-negotiable):
 - pytestmark = [pytest.mark.{env}, allure.suite("{env}")]
 - @allure.title("TC-XXX: ...") on every test
 - HttpClient from apitf.http_client — never raw requests
-- All thresholds/URLs from env_config["{env}"] — zero hardcoded numbers
+
+env_config is a PYTEST FIXTURE injected by conftest.py — NEVER import it from a module.
+Each test function receives it as a parameter:
+    def test_foo(env_config: dict) -> None:
+        cfg = env_config["{env}"]
+        with HttpClient(cfg["base_url"]) as client:
+            resp = client.get("{probe_path}")
+
+- All thresholds from cfg["thresholds"]["max_response_time"] — zero hardcoded numbers
 - @pytest.mark.flaky(reruns=2, reruns_delay=2) on every live HTTP call
-- No @pytest.mark.flaky on xfail tests or HTTPS-enforcement tests
+- No @pytest.mark.flaky on xfail tests or HTTPS-enforcement tests (those don't make a real request)
 - from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS for all xfail raises=
+- xfail must use strict=True ONLY for confirmed API bugs with a filed issue
+  Do NOT add xfail to performance tests — write a plain assertion against the SLA threshold
 - Full type hints, -> None return type on every function
 - No print(), no prose comments in code
 - Negative tests assert the EXACT expected status code (never >= 400 or ranges)
-- assert result.passed, result.errors pattern for all validator calls
+- Validator: result = {class_name}().validate(resp.json_body); assert result.passed, result.errors
+  (NEVER: {class_name}(data).validate() — data goes into validate(), NOT __init__)
 - HttpClient is used as a context manager: with HttpClient(cfg["base_url"]) as client:
+
+HttpResponse attributes (use ONLY these — do NOT use .json() or .elapsed):
+- resp.status_code      -> int
+- resp.json_body        -> dict | list  (parsed JSON)
+- resp.response_time_ms -> float        (milliseconds)
+- resp.headers          -> dict
+
+For the HTTPS security test (no live request):
+    import pytest
+    from apitf.http_client import HttpClient
+    with pytest.raises(ValueError, match="HTTPS"):
+        HttpClient(cfg["base_url"].replace("https://", "http://"))
+
+Do NOT reference cfg["boundaries"] or cfg["insecure_base_url"] — those keys do not exist.
+Use literal integers for edge IDs: id=1 (minimum), id=9999 (out-of-range beyond max).
 
 Techniques to cover (at least one test each):
 1. Equivalence partitioning — valid input values
@@ -369,10 +395,8 @@ Output ONLY the Python source for tests/test_{module_name}.py. No prose, no mark
                 messages=[{"role": "user", "content": prompt}],
             )
             src = message.content[0].text.strip()
-        if src.startswith("```"):
-            src = "\n".join(src.split("\n")[1:])
-        if src.endswith("```"):
-            src = "\n".join(src.split("\n")[:-1])
+        from apitf.eval_loop import _strip_fences
+        src = _strip_fences(src)
         print("[apitf] AI generation: full 7-technique test suite generated.", flush=True)
         return src
     except Exception as exc:
@@ -500,106 +524,268 @@ def _generate_test_plan(
     specs: list,
     project_root: Path,
 ) -> Path:
-    """Write a structured markdown test plan to test_plans/<env>_test_plan.md.
+    """Write a TEST_PLAN.md-style document to test_plans/<env>_test_plan.md.
 
-    Covers all 7 techniques: equivalence, boundary, positive, negative,
-    performance, security, state-based.
+    Covers 10 techniques with per-endpoint TC generation, P1/P2/P3 priority,
+    risk & mitigations, and acceptance criteria — matching the gold standard.
     """
     plan_dir = project_root / "test_plans"
     plan_dir.mkdir(exist_ok=True)
     plan_path = plan_dir / f"{env}_test_plan.md"
 
-    endpoints_rows = "\n".join(
-        f"| `{s.method}` | `{s.path}` | {', '.join(s.response_fields[:5]) or '—'} |"
+    prefix = env[:3].upper()
+    validator_class = f"{env.replace('_', ' ').title().replace(' ', '')}Validator"
+    fields_list = ", ".join(f"`{f}`" for f in all_fields[:10]) or "_(sampled at scaffold time)_"
+
+    # --- Section 1: Scope ---
+    in_scope_rows = "\n".join(
+        f"| `{s.method}` | `{s.path}` "
+        f"| {', '.join(f'`{f}`' for f in s.response_fields[:5]) or '—'} |"
         for s in specs
     )
-    fields_list = ", ".join(f"`{f}`" for f in all_fields[:10]) or "_(sampled at scaffold time)_"
-    threshold_note = "from `env_config[thresholds][max_response_time]` — never hardcoded (Rule 1)"
+
+    # --- Section 2: Approach matrix ---
+    approach_rows = (
+        f"| Positive (happy path)      | P1 | 1 per endpoint | Valid request → HTTP 200 + JSON |\n"
+        f"| Schema validation          | P1 | 1 per endpoint | `{validator_class}().validate()` passes |\n"
+        f"| Equivalence partitioning   | P2 | 1 per endpoint | Representative valid input → 200 |\n"
+        f"| Boundary value analysis    | P2 | 2 per endpoint | Min/max identifier edge cases |\n"
+        f"| Negative / error paths     | P1 | 2 fixed        | Unknown path 404, bad params 400 |\n"
+        f"| Error handling             | P2 | 1 fixed        | Malformed input → 4xx, not 5xx |\n"
+        f"| Performance / SLA          | P1 | 1 fixed        | `{probe_path}` < `max_response_time` (YAML) |\n"
+        f"| Reliability                | P2 | 1 fixed        | `@pytest.mark.flaky(reruns=2)` |\n"
+        f"| Security                   | P1 | 2 fixed        | HTTPS enforcement + OWASP headers |\n"
+        f"| Compatibility              | P3 | 1 fixed        | Python 3.9 + 3.12 matrix |"
+    )
+
+    # --- Section 3: Test Cases table ---
+    tc_rows: list[str] = []
+    tc_num = 1
+
+    for s in specs:
+        endpoint = f"`{s.method} {s.path}`"
+        fields_str = (
+            ", ".join(f"`{f}`" for f in s.response_fields[:4])
+            or "_(sampled)_"
+        )
+
+        tc_rows.append(
+            f"| TC-{prefix}-{tc_num:03d} | {endpoint} | Positive | "
+            f"Valid request returns 200 and JSON body | Standard params | "
+            f"HTTP 200, `Content-Type: application/json` | P1 |"
+        )
+        tc_num += 1
+
+        tc_rows.append(
+            f"| TC-{prefix}-{tc_num:03d} | {endpoint} | Schema | "
+            f"Response fields {fields_str} present and typed | Valid request | "
+            f"`{validator_class}().validate()` passes | P1 |"
+        )
+        tc_num += 1
+
+        tc_rows.append(
+            f"| TC-{prefix}-{tc_num:03d} | {endpoint} | Equivalence | "
+            f"Representative valid input class | Nominal params | HTTP 200 | P2 |"
+        )
+        tc_num += 1
+
+        tc_rows.append(
+            f"| TC-{prefix}-{tc_num:03d} | {endpoint} | Boundary | "
+            f"Minimum identifier value | edge-case id=1 or equivalent | "
+            f"HTTP 200 or 404, not 500 | P2 |"
+        )
+        tc_num += 1
+
+        tc_rows.append(
+            f"| TC-{prefix}-{tc_num:03d} | {endpoint} | Boundary | "
+            f"Empty / maximum identifier | `''` or out-of-range id | "
+            f"HTTP 4xx, not 500 | P2 |"
+        )
+        tc_num += 1
+
+    # Fixed TCs — shared across all envs
+    base_ep = f"`GET {probe_path}`"
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | `GET /__apitf_nonexistent__` | Negative | "
+        f"Unknown path returns 404 | Invalid path | HTTP 404 exactly | P1 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | {base_ep} | Negative | "
+        f"Missing required params returns 400 | Omit required param | HTTP 400 or 422 | P1 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | {base_ep} | Error Handling | "
+        f"Malformed request does not trigger 5xx | Malformed query | HTTP 4xx, not 5xx | P2 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | {base_ep} | Performance | "
+        f"Response within SLA threshold | Standard params | "
+        f"< `max_response_time` × 1000 ms (YAML, never hardcoded) | P1 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | {base_ep} | Reliability | "
+        f"Transient failure retried and recovered | Network blip | "
+        f"Pass on retry ≤ 2; `@pytest.mark.flaky(reruns=2)` | P2 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | `HttpClient('http://...')` | Security | "
+        f"HTTP (not HTTPS) is rejected at construction | Plain-HTTP base URL | "
+        f"`ValueError` raised, message contains `'HTTPS'` | P1 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | {base_ep} | Security | "
+        f"OWASP security headers present in response | Standard request | "
+        f"`Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` present | P1 |"
+    )
+    tc_num += 1
+
+    tc_rows.append(
+        f"| TC-{prefix}-{tc_num:03d} | _(matrix)_ | Compatibility | "
+        f"Framework runs cleanly on Python 3.9 and 3.12 | CI matrix | "
+        f"All tests pass on ubuntu/3.9 + ubuntu/3.12 (Rule 26) | P3 |"
+    )
+
+    tc_table = "\n".join(tc_rows)
+    total_tcs = tc_num  # last tc_num value (1-indexed count)
+
+    # --- Section 6: Acceptance criteria ---
+    accept_rows = (
+        "| Positive        | All endpoints return HTTP 200 with `Content-Type: application/json` |\n"
+        "| Schema          | `{vc}().validate()` returns `passed=True` for every endpoint |\n"
+        "| Equivalence     | Representative valid input returns HTTP 200 |\n"
+        "| Boundary        | Edge identifiers return 200/404 — never 500 |\n"
+        "| Negative        | Exact 4xx status asserted (no ranges, no `>= 400`) |\n"
+        "| Error Handling  | Malformed requests produce 4xx, never 5xx |\n"
+        "| Performance     | Response time < YAML threshold on every run (Rule 1 — never hardcoded) |\n"
+        "| Reliability     | All live-API tests decorated `@pytest.mark.flaky(reruns=2)` |\n"
+        "| Security        | HTTPS guard raises `ValueError`; OWASP headers confirmed present |\n"
+        "| Compatibility   | CI gate green on Python 3.9 + 3.12 (Rule 26) |"
+    ).replace("{vc}", validator_class)
 
     content = f"""# Test Plan — `{env}` environment
 
 **Base URL:** `{base_url}`
 **Probe path:** `{probe_path}`
-**Generated by:** `apitf-run` scaffold step
+**Generated:** `apitf-run` scaffold step
 **Framework rules:** testing-standards.md, framework-rules.md
 
 ---
 
-## Scope
+## Table of Contents
 
-| Method | Path | Key fields |
-|--------|------|------------|
-{endpoints_rows}
-
-**Sampled response fields:** {fields_list}
-
----
-
-## Test Cases by Technique
-
-### 1. Equivalence Partitioning
-Partition valid inputs into equivalence classes and test one representative from each.
-
-| TC | Input class | Expected |
-|----|-------------|----------|
-| TC-{env[:3].upper()}-001 | Valid probe path `{probe_path}` | HTTP 200, schema passes `{env.title().replace('_','')}Validator` |
-| TC-{env[:3].upper()}-002 | Valid probe path with extra query params ignored | HTTP 200 |
-
-### 2. Boundary Value Analysis
-Test inputs at the edge of valid ranges.
-
-| TC | Input | Expected |
-|----|-------|----------|
-| TC-{env[:3].upper()}-003 | Minimum valid identifier | HTTP 200 or 404 (not 500) |
-| TC-{env[:3].upper()}-004 | Maximum field value | HTTP 200, no truncation |
-
-### 3. Positive (Happy Path)
-| TC | Description | Expected |
-|----|-------------|----------|
-| TC-{env[:3].upper()}-005 | `{probe_path}` returns 200 | HTTP 200, `Content-Type: application/json` |
-| TC-{env[:3].upper()}-006 | Response body passes `{env.title().replace('_','')}Validator` schema | `result.passed == True` |
-
-### 4. Negative / Error Paths
-| TC | Input | Expected |
-|----|-------|----------|
-| TC-{env[:3].upper()}-007 | Unknown path `/__apitf_nonexistent__` | HTTP 4xx (exact code asserted) |
-| TC-{env[:3].upper()}-008 | Missing required parameters (if applicable) | HTTP 400 or 422 |
-
-### 5. Performance / SLA
-| TC | Condition | Expected |
-|----|-----------|----------|
-| TC-{env[:3].upper()}-009 | `{probe_path}` response time | < `max_response_time` × 1000 ms ({threshold_note}) |
-
-### 6. Security
-| TC | Assertion | Expected |
-|----|-----------|----------|
-| TC-{env[:3].upper()}-010 | `HttpClient("http://...")` | Raises `ValueError` matching `"HTTPS"` |
-| TC-{env[:3].upper()}-011 | OWASP headers: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` | Present in response |
-
-### 7. State-Based
-| TC | Description | Expected |
-|----|-------------|----------|
-| TC-{env[:3].upper()}-012 | Response fields reflect expected resource state | All required fields non-null |
+1. [Scope](#1-scope)
+2. [Approach & Techniques](#2-approach--techniques)
+3. [Test Cases](#3-test-cases)
+4. [Test Data & Configuration](#4-test-data--configuration)
+5. [Environment & Infrastructure](#5-environment--infrastructure)
+6. [Acceptance Criteria](#6-acceptance-criteria)
+7. [Risk & Mitigations](#7-risk--mitigations)
 
 ---
 
-## Acceptance Criteria
+## 1. Scope
 
-- All positive TCs: HTTP 200, schema valid
-- All negative TCs: exact 4xx status asserted (never `>= 400` or ranges)
-- SLA TC: response time within YAML-defined threshold (never hardcoded)
-- Security TC: HttpClient HTTPS enforcement confirmed
-- Zero `STRUCTURAL_FAILURE` or `QUALITY_FAILURE` in eval loop final report
+### In Scope
+
+| Method | Path | Sampled response fields |
+|--------|------|-------------------------|
+{in_scope_rows}
+
+**All sampled fields:** {fields_list}
+
+### Out of Scope
+
+- Write operations (POST / PUT / PATCH / DELETE) unless the spec requires them
+- Authentication flows (API keys, OAuth) — covered by the security technique only at the HTTP layer
+- Third-party downstream systems beyond `{base_url}`
+- Load / stress testing (> 1 concurrent request)
 
 ---
 
-## How to Run
+## 2. Approach & Techniques
+
+| Technique | Priority | TC count | Rationale |
+|-----------|----------|----------|-----------|
+{approach_rows}
+
+---
+
+## 3. Test Cases
+
+### {env} API Test Cases
+
+| ID | Endpoint | Technique | Description | Input | Expected | Priority |
+|----|----------|-----------|-------------|-------|----------|----------|
+{tc_table}
+
+**Total: {total_tcs} test cases**
+
+---
+
+## 4. Test Data & Configuration
+
+- **Thresholds:** all numeric limits read from `config/environments.yaml` via `env_config` fixture — never hardcoded (Rule 1)
+- **Coordinates / identifiers:** loaded from `test_data/` JSON files — never inline literals (Testing Standard 1)
+- **Base URL:** `{base_url}` (single source: `config/environments.yaml`)
+- **Probe path:** `{probe_path}`
+- **Sampled fields:** `{fields_list}`
+
+---
+
+## 5. Environment & Infrastructure
+
+| Item | Value |
+|------|-------|
+| Target API | `{base_url}` |
+| Python versions | 3.9, 3.11, 3.12 |
+| CI runners | ubuntu-latest (smoke + versions), windows-latest, macos-latest (platform) |
+| Report format | Allure HTML (`allure serve allure-results`) |
+| Retry policy | `@pytest.mark.flaky(reruns=2, reruns_delay=2)` on all live-HTTP tests |
+| SLA threshold | `env_config["thresholds"]["max_response_time"]` seconds |
 
 ```bash
+# Run all tests for this environment
 pytest --env {env} -v --alluredir=allure-results
+
+# Run by technique
 pytest --env {env} -m security -v
 pytest --env {env} -m performance -v
+pytest --env {env} -m compatibility -v
 ```
+
+---
+
+## 6. Acceptance Criteria
+
+| Technique | Pass condition |
+|-----------|---------------|
+{accept_rows}
+
+Zero `STRUCTURAL_FAILURE` or `QUALITY_FAILURE` categories in the eval loop final report.
+
+---
+
+## 7. Risk & Mitigations
+
+| # | Risk | Likelihood | Impact | Mitigation |
+|---|------|-----------|--------|------------|
+| R1 | Live API unavailable during CI | Medium | High | `@pytest.mark.flaky(reruns=2)` — classify as `ENV_FAILURE` after 2 retries; do not consume iteration budget (Rule 10) |
+| R2 | SLA threshold exceeded consistently | Low | Medium | Classify as `SLA_VIOLATION`; file GitHub issue; mark `xfail(strict=True)` — never raise YAML threshold (Rule 21) |
+| R3 | Schema change breaks `{validator_class}` | Low | High | Schema validation TC (P1) surfaces mismatch immediately; file `QUALITY_FAILURE` bug |
+| R4 | OWASP headers removed by API operator | Low | High | Security TC (P1) fails; file bug; `xfail(strict=True)` until resolved |
+| R5 | Python version incompatibility | Low | Medium | Compatibility TC (P3) in CI matrix (ubuntu/3.9 + ubuntu/3.12); fails gate before merge (Rule 26) |
 """
     plan_path.write_text(content, encoding="utf-8")
     return plan_path
@@ -775,6 +961,15 @@ def cmd_run(argv: list[str] | None = None) -> None:
 
     plan_path = _generate_test_plan(env, base_url, probe_path, all_fields, specs, project_root)
     print(f"[apitf-run] Test plan : {plan_path.relative_to(project_root)}")
+
+    from apitf.eval_loop import reflect_test_plan_loop
+    reflect_test_plan_loop(
+        env=env,
+        plan_path=plan_path,
+        model=args.model,
+        reflector_model=args.reflector_model,
+        api_key=resolved_key,
+    )
 
     _wire_environments_yaml(env, base_url, probe_path, project_root)
     _wire_pytest_ini_marker(env, project_root)

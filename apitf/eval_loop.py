@@ -108,14 +108,14 @@ def _claude_cli_available() -> bool:
 def _claude_cli_call(prompt: str, model: str) -> str:
     """Call the claude CLI with a prompt via stdin, returning the response text.
 
-    Uses the authenticated Claude Code session — no API key needed.
-    Passes the prompt via stdin rather than -p to avoid shell length limits
-    and subprocess argument-list timeouts on long prompts.
+    Runs from /tmp so the project CLAUDE.md is not loaded (prevents the CLI
+    from prepending session-start prose to its response).
     """
     result = subprocess.run(
         ["claude", "--model", model, "-p", "--allowedTools", "", "--output-format", "text", "-"],
         input=prompt,
         capture_output=True, text=True, timeout=180,
+        cwd="/tmp",
     )
     if result.returncode != 0:
         raise RuntimeError(f"claude CLI error: {result.stderr.strip()}")
@@ -174,12 +174,26 @@ def _get_client(model: str | None = None, api_key: str | None = None):
 
 
 def _strip_fences(text: str) -> str:
+    """Extract code from a response, stripping markdown fences and any leading prose.
+
+    Priority order:
+    1. Extract content inside the first ```python ... ``` or ``` ... ``` block
+    2. If no fences, find the first Python-module-opening line and take from there
+    3. Fall back to stripped raw text
+    """
     text = text.strip()
-    if text.startswith("```"):
-        text = "\n".join(text.split("\n")[1:])
-    if text.endswith("```"):
-        text = "\n".join(text.split("\n")[:-1])
-    return text.strip()
+    # Try to extract from a fenced code block (```python or plain ```)
+    fenced = re.search(r"```(?:python)?\s*\n([\s\S]*?)```", text)
+    if fenced:
+        return fenced.group(1).strip()
+    # No fences — find first line that opens a Python module (skip all prose)
+    _PYTHON_OPENERS = ("from __future__", "import ", "from ", "def ", "class ", "#!", "# -*-")
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if any(stripped.startswith(p) for p in _PYTHON_OPENERS):
+            return "\n".join(lines[i:]).strip()
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -564,25 +578,35 @@ def eval_loop(
         print(f"\n[reflector] Applying {len(corrections)} correction(s) via {model} …")
         current_src = test_file.read_text(encoding="utf-8")
         corrections_text = "\n".join(f"- {c}" for c in corrections)
-        fix_prompt = f"""You are fixing a pytest test file based on a QA architect's review.
+        fix_prompt = f"""You are fixing a pytest test file. Output ONLY valid Python source code.
+
+CRITICAL: Your response must begin with a Python statement (e.g. `from __future__ import annotations` or `import pytest`).
+Do NOT write any prose, summary, explanation, or markdown fences. The first character of your output must be part of Python code.
 
 ## Current file
-```python
 {current_src}
-```
 
 ## Required corrections (apply ALL of these)
 {corrections_text}
 
 Framework rules (must not be broken):
-- All thresholds/URLs from env_config — zero hardcoded numbers or hostnames
-- HttpClient used as context manager
+- env_config is a PYTEST FIXTURE — never import from a module. Each test receives it as a parameter:
+    def test_foo(env_config: dict) -> None:
+        cfg = env_config["<env_name>"]
+- HttpResponse: resp.json_body (not .json()), resp.response_time_ms (not .elapsed)
+- All SLA thresholds from cfg["thresholds"]["max_response_time"] * 1000
+- HttpClient context manager: with HttpClient(cfg["base_url"]) as client:
 - @pytest.mark.flaky(reruns=2, reruns_delay=2) on every live HTTP call
 - Negative tests assert EXACT status code (never `in (...)` or `>= 400`)
-- assert result.passed, result.errors for all validator calls
+- Validator: result = ValidatorClass().validate(data); assert result.passed, result.errors
+  (NEVER: ValidatorClass(data).validate() — data goes into validate(), NOT __init__)
+- HTTPS security test: pytest.raises(ValueError, match="HTTPS") around HttpClient(http_url)
+  where http_url = cfg["base_url"].replace("https://", "http://")
+- Do NOT use cfg["boundaries"] or cfg["insecure_base_url"] — those keys don't exist
+- Boundary IDs: use literal integers (id=1 minimum, id=9999 out-of-range)
 - Full type hints on every function
 
-Output ONLY the corrected Python source — no markdown fences, no prose."""
+BEGIN YOUR RESPONSE WITH PYTHON CODE NOW:"""
 
         try:
             fixed_src = _make_api_call(fix_prompt, model, resolved_key)
@@ -601,3 +625,201 @@ Output ONLY the corrected Python source — no markdown fences, no prose."""
             break
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Test plan reflector
+# ---------------------------------------------------------------------------
+
+_PLAN_REQUIRED_SECTIONS = [
+    "## 1. Scope",
+    "## 2. Approach",
+    "## 3. Test Cases",
+    "## 4. Test Data",
+    "## 5. Environment",
+    "## 6. Acceptance Criteria",
+    "## 7. Risk",
+]
+_PLAN_REQUIRED_TECHNIQUES = [
+    "Positive", "Schema", "Equivalence", "Boundary",
+    "Negative", "Error Handling", "Performance", "Reliability", "Security", "Compatibility",
+]
+_PLAN_PASS_THRESHOLD = 70
+
+
+def _score_test_plan_structurally(plan_path: Path) -> dict[str, Any]:
+    """Fast programmatic structural check — no AI call needed."""
+    text = plan_path.read_text(encoding="utf-8")
+    issues: list[str] = []
+
+    missing_sections = [s for s in _PLAN_REQUIRED_SECTIONS if s not in text]
+    if missing_sections:
+        issues.append(f"Missing sections: {missing_sections}")
+
+    missing_techniques = [t for t in _PLAN_REQUIRED_TECHNIQUES if t not in text]
+    if missing_techniques:
+        issues.append(f"Missing techniques: {missing_techniques}")
+
+    import re as _re
+    tc_ids = _re.findall(r"TC-[A-Z]{3}-\d{3}", text)
+    if len(tc_ids) < 8:
+        issues.append(f"Too few TC IDs ({len(tc_ids)} found, expected ≥ 8)")
+
+    if not any(p in text for p in ("| P1 |", "| P2 |", "| P3 |")):
+        issues.append("No priority column (P1/P2/P3) found in TC table")
+
+    if "Risk" not in text:
+        issues.append("Risk & Mitigations section missing")
+
+    # Score: start at 100, deduct per issue
+    deductions = {
+        "Missing sections": 30,
+        "Missing techniques": 25,
+        "Too few TC IDs": 20,
+        "No priority column": 15,
+        "Risk": 10,
+    }
+    score = 100
+    for issue in issues:
+        for key, penalty in deductions.items():
+            if key in issue:
+                score -= penalty
+                break
+    score = max(0, score)
+    passed = score >= _PLAN_PASS_THRESHOLD and not issues
+    return {"score": score, "passed": passed, "issues": issues, "tc_count": len(tc_ids)}
+
+
+def _reflect_test_plan(
+    env: str,
+    plan_path: Path,
+    structural: dict[str, Any],
+    model: str = ADVISOR_MODEL,
+    api_key: str | None = None,
+) -> ReviewResult:
+    """Opus reviews the generated test plan against the gold-standard rubric."""
+    resolved_key, source = detect_ai_mode(api_key)
+    if not resolved_key:
+        print("[plan-reflector] No auth — skipping plan review.", file=sys.stderr)
+        return {"score": -1, "passed": False, "deviations": ["No auth"], "corrections": [], "category": "n/a"}
+
+    plan_text = plan_path.read_text(encoding="utf-8")
+    prompt = f"""You are a senior QA architect reviewing an auto-generated test plan for the `{env}` API environment.
+
+## Generated test plan
+```markdown
+{plan_text}
+```
+
+## Structural pre-check (automated)
+Score: {structural["score"]}/100  |  TC count: {structural["tc_count"]}
+Issues found: {structural["issues"] or "none"}
+
+## Scoring rubric (pass threshold = {_PLAN_PASS_THRESHOLD})
+Score 0–100 across these dimensions (each worth up to ~14 pts):
+- All 7 sections present: Scope, Approach, Test Cases, Test Data, Environment, Acceptance Criteria, Risk & Mitigations
+- All 10 techniques covered: Positive, Schema, Equivalence, Boundary, Negative, Error Handling, Performance, Reliability, Security, Compatibility
+- TC IDs sequential (TC-XXX-NNN format), ≥ 8 total
+- Priority column (P1/P2/P3) present on every TC row
+- Risk & Mitigations section with ≥ 3 risk rows
+- Acceptance criteria tied to each technique
+- Threshold note references YAML (never hardcoded numbers)
+
+Return JSON only — no markdown fences:
+{{
+  "score": <int 0-100>,
+  "passed": <bool>,
+  "deviations": ["<missing or wrong element>", ...],
+  "corrections": ["<specific actionable markdown edit>", ...],
+  "category": "test-plan"
+}}"""
+
+    print(f"[plan-reflector] Sending {plan_path.name} to {model} for review (via {source}) …")
+    try:
+        raw = _make_api_call(prompt, model, api_key)
+        text = _strip_fences(raw)
+        return json.loads(text)
+    except Exception as exc:
+        print(f"[plan-reflector] Review call failed: {exc}", file=sys.stderr)
+        return {"score": -1, "passed": False, "deviations": [str(exc)], "corrections": [], "category": "error"}
+
+
+def reflect_test_plan_loop(
+    env: str,
+    plan_path: Path,
+    model: str,
+    reflector_model: str = ADVISOR_MODEL,
+    api_key: str | None = None,
+    max_iter: int = 2,
+) -> None:
+    """Structural check → Opus review → AI correction loop for the test plan markdown.
+
+    Mirrors the eval_loop reflector pattern but for markdown rather than pytest files.
+    Up to `max_iter` rounds of: score → review → apply corrections → re-score.
+    """
+    resolved_key, _source = detect_ai_mode(api_key)
+
+    structural = _score_test_plan_structurally(plan_path)
+    print(
+        f"[plan-reflector] Structural score: {structural['score']}/100 "
+        f"({structural['tc_count']} TCs)"
+    )
+    if structural["issues"]:
+        for issue in structural["issues"]:
+            print(f"[plan-reflector]   ✗ {issue}")
+
+    if structural["passed"]:
+        print("[plan-reflector] Plan passed structural check — skipping Opus review.")
+        return
+
+    for round_num in range(1, max_iter + 2):
+        review = _reflect_test_plan(env, plan_path, structural, model=reflector_model, api_key=api_key)
+        score = review.get("score", -1)
+        passed = review.get("passed", False)
+
+        if score >= 0:
+            print(f"[plan-reflector] Opus score: {score}/100  passed={passed}")
+        for dev in review.get("deviations", []):
+            print(f"[plan-reflector]   deviation: {dev}")
+
+        if passed or score < 0:
+            break
+
+        if round_num > max_iter:
+            print(f"[plan-reflector] Max correction rounds ({max_iter}) reached — stopping.")
+            break
+
+        corrections = review.get("corrections", [])
+        if not corrections or not resolved_key:
+            break
+
+        print(f"[plan-reflector] Applying {len(corrections)} correction(s) via {model} …")
+        current_src = plan_path.read_text(encoding="utf-8")
+        fix_prompt = f"""You are editing a markdown test plan file.
+
+## Current test plan
+```markdown
+{current_src}
+```
+
+## Required corrections
+{chr(10).join(f'{i+1}. {c}' for i, c in enumerate(corrections))}
+
+Output ONLY the corrected markdown — no prose, no fences."""
+
+        try:
+            fixed = _make_api_call(fix_prompt, model, resolved_key)
+            fixed = _strip_fences(fixed)
+            plan_path.write_text(fixed, encoding="utf-8")
+            structural = _score_test_plan_structurally(plan_path)
+            print(
+                f"[plan-reflector] After corrections — structural score: "
+                f"{structural['score']}/100 ({structural['tc_count']} TCs)"
+            )
+            if structural["passed"]:
+                print("[plan-reflector] Plan now passes structural check.")
+                break
+        except Exception as exc:
+            print(f"[plan-reflector] Correction failed: {exc} — reverting.", file=sys.stderr)
+            plan_path.write_text(current_src, encoding="utf-8")
+            break
