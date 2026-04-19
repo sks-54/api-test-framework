@@ -136,14 +136,17 @@ sequenceDiagram
         VAL->>VAL: check value ranges
         VAL-->>CLI: ValidationResult(passed, errors, warnings)
 
+        CLI->>AL: allure.attach(response metadata: URL · status · time_ms)
+        CLI->>AL: allure.attach(response body: JSON, truncated at 3000 chars)
+
         alt passed
-            CLI->>AL: allure.attach(response snippet)
+            Note over CLI,AL: report complete — no further action
         else failed
             CLI->>BUG: pytest_runtest_makereport hook fires
             BUG->>BUG: categorize: QUALITY_FAILURE / ENV_FAILURE
             BUG->>BUG: extract platform + Python version info
             BUG->>BUG: build structured markdown
-            BUG->>AL: attach bug report as TEXT
+            BUG->>AL: allure.attach(bug report as TEXT)
             BUG->>BUG: write bugs/<timestamp>_<test>.md
         end
     end

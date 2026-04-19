@@ -3,6 +3,7 @@ schema, boundaries, cross-reference, negative, performance, and reliability."""
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -19,6 +20,20 @@ logger = logging.getLogger(__name__)
 EXPECTED_EUROPE_REGION_MIN: int = 40
 
 
+def _attach(resp: Any, name: str = "Response") -> None:
+    """Attach HTTP response metadata and body to the Allure report."""
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms",
+        name=f"{name} — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
+    if resp.json_body is not None:
+        body_text = json.dumps(resp.json_body, indent=2)
+        if len(body_text) > 3000:
+            body_text = body_text[:3000] + "\n... (truncated)"
+        allure.attach(body_text, name=f"{name} — body", attachment_type=allure.attachment_type.JSON)
+
+
 # ---------------------------------------------------------------------------
 # TC-C-001  Positive — Germany by name
 # ---------------------------------------------------------------------------
@@ -31,6 +46,7 @@ def test_germany_schema(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/germany")
+    _attach(resp)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
     result = CountryValidator().validate(resp.json_body)
     assert result.passed, result.errors
@@ -48,6 +64,7 @@ def test_country_by_alpha_code(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/alpha/DE")
+    _attach(resp)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
     result = CountryValidator().validate(resp.json_body)
     assert result.passed, result.errors
@@ -67,6 +84,7 @@ def test_invalid_country_name_returns_404(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/zzzznotacountry")
+    _attach(resp)
     assert resp.status_code == 404, f"Expected 404, got {resp.status_code}"
 
 
@@ -87,6 +105,7 @@ def test_invalid_alpha_code_returns_404(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/alpha/ZZZ999")
+    _attach(resp)
     assert resp.status_code == 404, (
         f"Expected 404 (resource not found), got {resp.status_code}. "
         f"Spec deviation — see BUG-001 / GitHub Issue #5."
@@ -105,6 +124,7 @@ def test_europe_region_count(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/region/europe")
+    _attach(resp)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
     assert isinstance(resp.json_body, list), "Expected list response"
     count = len(resp.json_body)
@@ -125,6 +145,7 @@ def test_very_low_population_passes_validator(env_config: dict[str, Any]) -> Non
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/vatican")
+    _attach(resp)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
     result = CountryValidator().validate(resp.json_body)
     assert result.passed, result.errors
@@ -142,12 +163,14 @@ def test_cross_reference_germany_region(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         country_resp = client.get("/name/germany")
+    _attach(country_resp, name="Step 1 — /name/germany")
     assert country_resp.status_code == 200
     assert isinstance(country_resp.json_body, list) and len(country_resp.json_body) > 0
     region = country_resp.json_body[0]["region"]
 
     with HttpClient(base_url) as client:
         region_resp = client.get(f"/region/{region}")
+    _attach(region_resp, name=f"Step 2 — /region/{region}")
     assert region_resp.status_code == 200
     names = [c["name"]["common"] for c in region_resp.json_body if isinstance(c, dict)]
     assert "Germany" in names, f"Germany not found in region {region!r}: {names[:10]}"
@@ -166,6 +189,11 @@ def test_all_countries_min_count(env_config: dict[str, Any]) -> None:
     min_count = cfg["thresholds"]["min_results_count"]
     with HttpClient(base_url) as client:
         resp = client.get("/all", params={"fields": "name"})
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nCount: {len(resp.json_body) if isinstance(resp.json_body, list) else 'n/a'}",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
     assert isinstance(resp.json_body, list)
     assert len(resp.json_body) >= min_count, (
@@ -186,6 +214,11 @@ def test_germany_lookup_performance(env_config: dict[str, Any]) -> None:
     max_ms = cfg["thresholds"]["max_response_time"] * 1000
     with HttpClient(base_url) as client:
         resp = client.get("/name/germany")
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nThreshold: {max_ms:.0f}ms",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     assert resp.response_time_ms < max_ms, (
         f"Response time {resp.response_time_ms:.1f}ms exceeds threshold {max_ms}ms"
@@ -205,6 +238,11 @@ def test_europe_region_performance(env_config: dict[str, Any]) -> None:
     max_ms = cfg["thresholds"]["max_response_time"] * 1000
     with HttpClient(base_url) as client:
         resp = client.get("/region/europe")
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nThreshold: {max_ms:.0f}ms",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     assert resp.response_time_ms < max_ms, (
         f"Response time {resp.response_time_ms:.1f}ms exceeds threshold {max_ms}ms"
@@ -234,6 +272,7 @@ def test_response_json_structure(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/france")
+    _attach(resp)
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list), "Expected JSON list at root"
     assert all(isinstance(item, dict) for item in resp.json_body), "Expected list of dicts"
@@ -251,6 +290,11 @@ def test_countries_by_language(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/lang/spa")
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nCount: {len(resp.json_body) if isinstance(resp.json_body, list) else 'n/a'}",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list)
     assert len(resp.json_body) > 0, "Expected at least one Spanish-speaking country"
@@ -270,6 +314,11 @@ def test_countries_by_currency(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/currency/eur")
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nCount: {len(resp.json_body) if isinstance(resp.json_body, list) else 'n/a'}",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list)
     assert len(resp.json_body) > 0, "Expected at least one EUR country"
@@ -287,6 +336,7 @@ def test_invalid_region_returns_404(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/region/notaregion99")
+    _attach(resp)
     assert resp.status_code == 404, f"Expected 404, got {resp.status_code}"
 
 
@@ -302,6 +352,7 @@ def test_fields_filter_limits_response(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/germany", params={"fields": "name,capital"})
+    _attach(resp)
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list)
     for item in resp.json_body:
@@ -323,6 +374,7 @@ def test_germany_flag_url_uses_https(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/germany")
+    _attach(resp)
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list) and len(resp.json_body) > 0
     flags = resp.json_body[0].get("flags", {})
@@ -345,6 +397,8 @@ def test_country_name_case_insensitive(env_config: dict[str, Any]) -> None:
     with HttpClient(base_url) as client:
         resp_lower = client.get("/name/germany")
         resp_upper = client.get("/name/GERMANY")
+    _attach(resp_lower, name="/name/germany (lowercase)")
+    _attach(resp_upper, name="/name/GERMANY (uppercase)")
     assert resp_lower.status_code == 200
     assert resp_upper.status_code == 200
     names_lower = {c["name"]["common"] for c in resp_lower.json_body if isinstance(c, dict)}
@@ -364,6 +418,7 @@ def test_empty_name_segment_returns_4xx(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/name/")
+    _attach(resp)
     assert resp.status_code == 404, (
         f"Expected 404 for empty name segment, got {resp.status_code}. "
         f"Non-404 4xx response is a spec deviation — report as bug."
@@ -382,8 +437,18 @@ def test_all_countries_schema_sample(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/all", params={"fields": "name,capital,population,currencies,languages"})
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nTotal countries: {len(resp.json_body) if isinstance(resp.json_body, list) else 'n/a'}\nValidating: first 10",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     sample = resp.json_body[:10]
+    allure.attach(
+        json.dumps(sample, indent=2),
+        name="Response — first 10 countries",
+        attachment_type=allure.attachment_type.JSON,
+    )
     result = CountryValidator().validate(sample)
     assert result.passed, result.errors
 
@@ -405,12 +470,23 @@ def test_all_population_boundary(env_config: dict[str, Any]) -> None:
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/all", params={"fields": "name,population"})
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nTotal countries: {len(resp.json_body) if isinstance(resp.json_body, list) else 'n/a'}",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     zero_pop = [
         item.get("name", {}).get("common", "unknown")
         for item in resp.json_body
         if isinstance(item, dict) and item.get("population", 1) == 0
     ]
+    if zero_pop:
+        allure.attach(
+            json.dumps(zero_pop, indent=2),
+            name="Countries with population=0 (spec violation)",
+            attachment_type=allure.attachment_type.JSON,
+        )
     assert zero_pop == [], (
         f"Expected all countries to have population >= 1. "
         f"Found {len(zero_pop)} with population=0: {zero_pop}. "
