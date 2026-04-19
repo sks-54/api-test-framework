@@ -106,6 +106,7 @@ def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-W-004: Missing latitude/longitude parameters returns 400")
 @pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
@@ -119,7 +120,7 @@ def test_forecast_missing_params_returns_4xx(env_config: dict[str, Any]) -> None
         resp = client.get("/forecast", params={"hourly": HOURLY_PARAMS})
     assert resp.status_code == 400, (
         f"Expected 400 when required params missing, got {resp.status_code}. "
-        f"Spec deviation — see BUG-002 / GitHub Issue #6."
+        f"REST convention: missing required params should return 400."
     )
 
 
@@ -243,8 +244,9 @@ def test_forecast_boundary_max_days(env_config: dict[str, Any]) -> None:
 # TC-W-010  Negative — extreme south pole coordinates return 4xx
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-W-010: Coordinates at south pole extremity (lat=-90) returns valid or 4xx")
+@allure.title("TC-W-010: Coordinates at south pole extremity (lat=-90) returns 200 with valid schema")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_south_pole_boundary(env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
@@ -253,6 +255,10 @@ def test_forecast_south_pole_boundary(env_config: dict[str, Any]) -> None:
             "/forecast",
             params={"latitude": -90, "longitude": 0, "hourly": HOURLY_PARAMS},
         )
-    assert resp.status_code in (200, 400), (
-        f"Expected 200 or 400 for edge coordinate, got {resp.status_code}"
+    assert resp.status_code == 200, (
+        f"Expected 200 for valid extreme coordinate lat=-90, got {resp.status_code}. "
+        f"Spec deviation if not 200 — report as bug."
     )
+    from src.validators.weather_validator import WeatherValidator
+    result = WeatherValidator().validate(resp.json_body)
+    assert result.passed, result.errors

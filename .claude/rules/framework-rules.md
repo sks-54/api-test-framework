@@ -84,6 +84,10 @@ Before any `git push`:
 3. `python -c "import yaml; yaml.safe_load(open('config/environments.yaml'))"` — YAML valid
 4. Company name scan (see Rule 12)
 5. `python -m mypy src/ tests/ --ignore-missing-imports` — no type errors
+6. `python scripts/verify_bug_markers.py` — every open bug in BUG_REPORT.md has a matching `@pytest.mark.xfail`
+
+Step 6 is the guard against xfail markers being silently dropped during rebases or merges.
+If it exits non-zero, do not push — add the missing xfail before proceeding.
 
 ## Rule 9 — No Direct Pushes to Main
 
@@ -320,3 +324,40 @@ If either grep returns a match, it is a pre-commit gate failure. Fix by:
 1. Asserting the exact expected status code
 2. Filing a GitHub issue for the spec deviation
 3. Marking the test `xfail(strict=True, raises=AssertionError, reason="Bug #<issue>: ...")`
+
+## Rule 23 — Post-Rebase Bug Marker Verification
+
+After every `git rebase`, `git merge`, or `git cherry-pick` that resolves conflicts, before `git push`:
+1. Run `python scripts/verify_bug_markers.py` immediately
+2. Any conflict resolution that takes `--theirs` or `--ours` can silently drop xfail markers
+   added in a later commit whose context conflicts with the resolved base
+3. If markers are missing, re-add them manually — never skip this step
+4. This rule applies equally to `git merge`, squash-merges from GitHub UI, and `git cherry-pick`
+
+```bash
+# After any rebase/merge/cherry-pick completes:
+python scripts/verify_bug_markers.py  # catches missing markers immediately
+# Non-zero exit → add missing @pytest.mark.xfail(strict=True, ...) to the test, commit, then push
+```
+
+This rule was added after xfail markers for BUG-001/002/003 were silently dropped
+during a rebase, causing TC-C-004 to show as FAILED instead of XFAIL in CI.
+
+## Rule 24 — Bug Reports Must Include curl Reproduction Command
+
+Every entry in `BUG_REPORT.md` must include a `curl` command that reproduces the bug.
+This allows any engineer to independently reproduce the issue without setting up the test framework.
+
+```bash
+# Format — paste this into the bug's Steps to Reproduce section:
+curl -s "https://api.example.com/v1/endpoint?param=value" | python3 -m json.tool
+```
+
+Requirements:
+- The curl URL must be complete and runnable as-is (no placeholder substitution needed)
+- Include `-s` (silent) and pipe to `python3 -m json.tool` for readable JSON output
+- If the bug requires request headers, include them with `-H "Header: value"`
+- Add a one-line comment above the curl showing what the expected vs actual status code is
+
+When adding a new bug entry, always include the curl command before filing the GitHub issue —
+confirm the curl reproduces the bug locally first, then add both to BUG_REPORT.md and the issue body.

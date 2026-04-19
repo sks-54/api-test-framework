@@ -16,10 +16,13 @@ New bugs are appended; resolved bugs are marked with status RESOLVED.
 | **Category** | QUALITY_FAILURE / SLA_VIOLATION |
 | **Status** | OPEN / RESOLVED / WONT_FIX |
 | **Title** | One-line summary |
-| **Steps** | How to reproduce |
+| **curl** | Complete runnable command — no placeholders (Rule 24) |
 | **Expected** | Per spec |
 | **Actual** | What the API returns |
 | **Data** | Request URL, status code, response snippet |
+
+The `curl` field is mandatory (Rule 24). Confirm the curl reproduces the bug locally
+before filing the GitHub issue. Include curl in the GitHub issue body too.
 
 ---
 
@@ -37,16 +40,16 @@ New bugs are appended; resolved bugs are marked with status RESOLVED.
 | **Status** | OPEN |
 | **Title** | `/alpha/ZZZ999` returns 400 Bad Request instead of 404 Not Found |
 
-**Steps to Reproduce:**
-```
-pytest tests/test_countries.py::test_invalid_alpha_code_returns_404 -v
-# or
-curl "https://restcountries.com/v3.1/alpha/ZZZ999"
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 404, actual HTTP 400
+curl -s -o /dev/null -w "%{http_code}" "https://restcountries.com/v3.1/alpha/ZZZ999"
+curl -s "https://restcountries.com/v3.1/alpha/ZZZ999" | python3 -m json.tool
 ```
 
 **Expected (per spec):** HTTP 404 — resource not found for invalid alpha code
 
-**Actual:** HTTP 400 Bad Request
+**Actual:** HTTP 400 Bad Request — `{"message":"Bad Request","status":400}`
 
 **Data:**
 - Request URL: `https://restcountries.com/v3.1/alpha/ZZZ999`
@@ -65,23 +68,24 @@ curl "https://restcountries.com/v3.1/alpha/ZZZ999"
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
-| **Title** | `/forecast` without required `lat`/`lon` returns 200 instead of 4xx |
+| **Title** | `/forecast` without required `lat`/`lon` returns 200 instead of 400 |
 
-**Steps to Reproduce:**
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 400, actual HTTP 200
+curl -s -o /dev/null -w "%{http_code}" "https://api.open-meteo.com/v1/forecast?hourly=temperature_2m"
+curl -s "https://api.open-meteo.com/v1/forecast?hourly=temperature_2m" | python3 -m json.tool
 ```
-pytest tests/test_weather.py::test_forecast_negative_missing_coords -v
-# or
-curl "https://api.open-meteo.com/v1/forecast"
-```
 
-**Expected (per spec):** HTTP 4xx — required parameters `latitude` and `longitude` missing
+**Expected:** HTTP 400 — REST convention: missing required parameters (`latitude`, `longitude`) should return 400
 
-**Actual:** HTTP 200 with either empty or default data
+**Actual:** HTTP 200 with empty/default data — API silently accepts missing required params
 
 **Data:**
-- Request URL: `https://api.open-meteo.com/v1/forecast`
+- Request URL: `https://api.open-meteo.com/v1/forecast?hourly=temperature_2m`
 - Status Code: 200
-- Notes: API silently accepts missing required params; should return 400
+- Notes: Discovered via QA negative-path testing. Even if not explicitly spec'd, silently
+  accepting missing required params is a REST API quality issue worth reporting.
 
 ---
 
@@ -97,9 +101,16 @@ curl "https://api.open-meteo.com/v1/forecast"
 | **Status** | OPEN |
 | **Title** | 5 territories return `population=0` violating minimum population contract |
 
-**Steps to Reproduce:**
-```
-pytest tests/test_countries.py::test_all_population_boundary -v
+**curl (reproduces bug):**
+```bash
+# Lists all entries with population=0 — expected: none
+curl -s "https://restcountries.com/v3.1/all?fields=name,population" \
+  | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+zero = [c['name']['common'] for c in data if c.get('population', 1) == 0]
+print(f'{len(zero)} entries with population=0:', zero)
+"
 ```
 
 **Expected (per spec):** All countries have `population >= 1`
@@ -112,8 +123,43 @@ pytest tests/test_countries.py::test_all_population_boundary -v
 - British Indian Ocean Territory
 
 **Data:**
-- Endpoint: `https://restcountries.com/v3.1/all`
-- Notes: These are uninhabited/sparsely populated territories. API returns 0 rather than null/absent. Debatable whether spec covers them — filed for tracking.
+- Endpoint: `https://restcountries.com/v3.1/all?fields=name,population`
+- Notes: Uninhabited territories — API returns 0 rather than null/absent
+
+---
+
+### BUG-004
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-004 |
+| **Issue** | TBD — file via `gh issue create --label bug,sla-violation` |
+| **Test** | TC-W-004, TC-W-010 |
+| **Severity** | P1 |
+| **Category** | SLA_VIOLATION |
+| **Status** | OPEN |
+| **Title** | Open-Meteo `/forecast` consistently times out in CI — all reruns exhausted (SLA violation) |
+
+**curl (measures response time):**
+```bash
+# Compare actual latency against max_response_time in config/environments.yaml
+time curl -s "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m" \
+  | python3 -m json.tool
+# South pole variant:
+time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-90&longitude=0&hourly=temperature_2m" \
+  | python3 -m json.tool
+```
+
+**Expected (per spec):** Response within `max_response_time` defined in `config/environments.yaml`
+
+**Actual:** Requests time out at 30s in GitHub Actions CI — all 3 retry attempts (reruns=2) exhausted
+
+**Data:**
+- Failing tests: `test_forecast_missing_params_returns_4xx` (TC-W-004), `test_forecast_south_pole_boundary` (TC-W-010)
+- CI runs: 24625148611, 24625149041
+- Error: `ReadTimeoutError: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out`
+- Per Rule 21: consistent failure across ALL reruns = SLA_VIOLATION, not transient ENV_FAILURE
+- Possible cause: GitHub Actions runner IPs rate-limited or throttled by Open-Meteo
 
 ---
 
@@ -125,16 +171,19 @@ _None yet._
 
 ## SLA Violations
 
-Failures meeting all of: (a) performance assertion fails, (b) reruns=2 all fail, (c) not a transient ENV_FAILURE.
-
-_None filed yet. Transient Open-Meteo timeouts during CI have been ENV_FAILUREs — all resolved with flaky markers._
+| Bug | Endpoint | Threshold | Observed | CI Runs |
+|-----|----------|-----------|----------|---------|
+| BUG-004 | `api.open-meteo.com/v1/forecast` | `max_response_time` (YAML) | timeout all 3 attempts | 24625148611, 24625149041 |
 
 ---
 
 ## How to Add a New Bug
 
-1. Run the failing test and confirm it is a QUALITY_FAILURE or SLA_VIOLATION (not ENV_FAILURE)
-2. File a GitHub issue: `gh issue create --label bug --title "..." --body "..."`
-3. Append a new entry to this file using the format above
-4. Add `@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Known API bug #N: ...")` to the test
-5. Reference the bug ID in `CLAUDE_LOG.md` Known Bugs table
+1. Reproduce with `curl` locally — confirm the bug before filing
+2. Classify: QUALITY_FAILURE (wrong response) or SLA_VIOLATION (timeout all reruns per Rule 21)
+3. File GitHub issue: `gh issue create --label bug --title "[BUG] ..." --body "..."`
+   - Include the curl command in the issue body
+4. Add entry to this file — `curl` field is mandatory (Rule 24)
+5. Add `@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Known API bug BUG-NNN / Issue #N: ...")` to the test
+6. Add to `CLAUDE_LOG.md` Known Bugs table
+7. Run `python scripts/verify_bug_markers.py` — must exit 0 before push
