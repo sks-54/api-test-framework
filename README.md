@@ -15,18 +15,22 @@ A production-grade, extensible multi-environment API test framework. Point it at
 1. [Architecture](#architecture)
 2. [Project Structure](#project-structure)
 3. [Quick Start](#quick-start)
-4. [Running Tests](#running-tests)
-5. [Framework Components](#framework-components)
-6. [Test Coverage](#test-coverage)
-7. [Test Design Techniques](#test-design-techniques)
-8. [Spec-Driven Development](#spec-driven-development)
-9. [Adding a New API](#adding-a-new-api)
-10. [Bug Lifecycle](#bug-lifecycle)
-11. [CI/CD Pipeline](#cicd-pipeline)
-12. [Rules Reference](#rules-reference)
-13. [Design Decisions](#design-decisions)
-14. [Troubleshooting](#troubleshooting)
-15. [Contributing](#contributing)
+4. [From Spec File to Running Tests](#from-spec-file-to-running-tests)
+5. [Common Workflows](#common-workflows)
+6. [Running Tests](#running-tests)
+7. [Understanding the Allure Report](#understanding-the-allure-report)
+8. [Using Claude Code Skills](#using-claude-code-skills)
+9. [Framework Components](#framework-components)
+9. [Test Coverage](#test-coverage)
+10. [Test Design Techniques](#test-design-techniques)
+11. [Spec-Driven Development](#spec-driven-development)
+12. [Adding a New API](#adding-a-new-api)
+13. [Bug Lifecycle](#bug-lifecycle)
+14. [CI/CD Pipeline](#cicd-pipeline)
+15. [Rules Reference](#rules-reference)
+16. [Design Decisions](#design-decisions)
+17. [Troubleshooting](#troubleshooting)
+18. [Contributing](#contributing)
 
 ---
 
@@ -448,6 +452,161 @@ allure serve allure-results
 
 ---
 
+## From Spec File to Running Tests
+
+The fastest path to testing a new API: drop a spec document in `specs/`, run three Claude Code skills in sequence, and you have a working test suite — config, validator, and test file all generated automatically.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  1. Drop spec          │  specs/myapi.pdf  (or .yaml / .md)          │
+│                        │                                              │
+│  2. In Claude Code →   │  /spec-parser SPEC_PATH=specs/myapi.pdf     │
+│     (extracts specs,   │   ↓ prints:                                  │
+│      updates YAML,     │   EndpointSpec(env_name='myapi', ...)        │
+│      prints next cmds) │   environments.yaml updated                  │
+│                        │   /validator-generator ... ← copy this       │
+│                        │   /test-generator ...      ← and this        │
+│                        │                                              │
+│  3. In Claude Code →   │  /validator-generator                        │
+│     (paste the cmd     │    SAMPLE_JSON=<paste live API response>     │
+│      spec-parser       │    CLASS_NAME=MyApiValidator                 │
+│      printed for you)  │    OUTPUT_MODULE=myapi_validator             │
+│                        │   ↓ writes src/validators/myapi_validator.py │
+│                        │                                              │
+│  4. In Claude Code →   │  /test-generator                             │
+│     (paste the cmd     │    ENDPOINT_URL=https://api.example.com/v1  │
+│      spec-parser       │    ENV_NAME=myapi                            │
+│      printed for you)  │    VALIDATOR_CLASS=MyApiValidator            │
+│                        │   ↓ writes tests/test_myapi.py               │
+│                        │     4 tests: positive · negative ·           │
+│                        │             boundary · performance           │
+│                        │                                              │
+│  5. Fill thresholds    │  config/environments.yaml                    │
+│                        │    myapi:                                     │
+│                        │      thresholds:                             │
+│                        │        max_response_time: 2.0  ← set this   │
+│                        │                                              │
+│  6. Run                │  pytest --env myapi -v --alluredir=allure-results │
+│                        │  allure serve allure-results                 │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Key point:** `/spec-parser` prints the exact `/validator-generator` and `/test-generator` commands for every endpoint it finds. You copy-paste them — you do not compose the arguments manually.
+
+**What you do not touch:**
+- `conftest.py` — `--env myapi` auto-discovered from YAML
+- `HttpClient` — works for any HTTPS endpoint
+- CI workflow — new tests run automatically on push
+- `BugReporter` — attaches to Allure and writes `bugs/` on any failure
+- `verify_bug_markers.py` — pre-push guard picks up new test files via glob
+
+For the full step-by-step with code, see [Spec-Driven Development](#spec-driven-development) and [Using Claude Code Skills](#using-claude-code-skills).
+
+---
+
+## Common Workflows
+
+Quick reference for the most common tasks. All commands assume you are in the repo root with the virtualenv active.
+
+### Run all tests and open the report
+
+```bash
+pytest -v --alluredir=allure-results   # run everything
+allure serve allure-results            # open interactive report in browser
+```
+
+### Run one environment only
+
+```bash
+pytest --env countries -v --alluredir=allure-results
+pytest --env weather   -v --alluredir=allure-results
+```
+
+### Re-run a single failing test
+
+```bash
+# Copy the test node ID from the pytest output
+pytest tests/test_countries.py::test_germany_schema -v
+
+# For a parametrized test, include the parameter
+pytest "tests/test_weather.py::test_forecast_positive_schema[Berlin]" -v
+```
+
+### A test failed — now what?
+
+```bash
+# 1. Look at the structured bug report written to bugs/
+ls bugs/                                    # one markdown file per failure
+cat bugs/<timestamp>_<test_name>.md         # URL · status · time · expected · actual
+
+# 2. Reproduce with curl (from the bug report's Steps section)
+curl -s "https://restcountries.com/v3.1/alpha/ZZZ999" | python3 -m json.tool
+
+# 3. Decide: API bug or env blip?
+#    ENV_FAILURE (transient):   @pytest.mark.flaky already retries 3×. If it passed on retry, done.
+#    QUALITY_FAILURE (API bug): file a GitHub issue, add xfail, push.
+
+# 4. File the issue
+gh issue create --label bug \
+  --title "[BUG] TC-C-004: /alpha/ZZZ999 returns 400 instead of 404" \
+  --body "$(cat bugs/<timestamp>_test_invalid_alpha_code_returns_404.md)"
+
+# 5. Mark the test
+#    In the test file, add above the def:
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+    reason="Known API bug BUG-NNN / Issue #N: ...")
+
+# 6. Push — CI turns green
+bash scripts/push.sh
+```
+
+### Add a new API (3-step path)
+
+```bash
+# Step 1 — config (one block in YAML, zero code changes)
+echo '
+newapi:
+  base_url: https://api.example.com/v1
+  thresholds:
+    max_response_time: 2.0
+    min_results_count: 1' >> config/environments.yaml
+
+# Step 2 — validator
+# (use /validator-generator skill in Claude Code, or write manually)
+# src/validators/newapi_validator.py — extend BaseValidator
+
+# Step 3 — tests
+# (use /test-generator skill in Claude Code, or write manually)
+# tests/test_newapi.py — use env_config["newapi"] fixture
+
+# Verify
+pytest --env newapi -v --alluredir=allure-results
+```
+
+### Add tests from a spec document
+
+```bash
+# Drop the spec in specs/
+cp ~/Downloads/myapi.pdf specs/
+
+# In a Claude Code session, invoke the skill:
+# /spec-parser SPEC_PATH=specs/myapi.pdf
+# → extracts EndpointSpec objects, updates environments.yaml, prints skill invocations
+
+# Then generate validator and tests (also in Claude Code):
+# /validator-generator SAMPLE_JSON=... CLASS_NAME=MyApiValidator OUTPUT_MODULE=myapi_validator
+# /test-generator ENDPOINT_URL=... ENV_NAME=myapi VALIDATOR_CLASS=MyApiValidator ...
+```
+
+### Check CI on an open PR
+
+```bash
+gh pr checks <PR_NUMBER>          # one-shot status
+gh pr checks <PR_NUMBER> --watch  # blocks until all checks complete
+```
+
+---
+
 ## Running Tests
 
 ### By Environment
@@ -535,6 +694,361 @@ Add a new block here and it is instantly available as `--env newblock`. No code 
 ```
 
 The `version: "1.0"` key at the top of `environments.yaml` is a schema version marker — it is preserved in the full-dict mode and ignored by test fixture access patterns.
+
+---
+
+## Understanding the Allure Report
+
+After running `pytest -v --alluredir=allure-results && allure serve allure-results`, the interactive report opens in your browser. Here is what each part contains.
+
+### Suites
+
+The report is segmented into two top-level suites driven by `allure.suite()` in each test file's `pytestmark`:
+
+| Suite | Source | Test functions | Collected nodes |
+|-------|--------|---------------|-----------------|
+| `countries` | `tests/test_countries.py` | 21 (TC-C-001 → TC-C-021) | 21 |
+| `weather` | `tests/test_weather.py` | 10 (TC-W-001 → TC-W-010) | 26 (4 tests × 5 cities parametrized + 6 non-parametrized) |
+
+> **Why "47 items" in Allure?** `pytest --collect-only` reports 47 nodes — 4 weather tests (`test_forecast_positive_schema`, `test_forecast_timezone_present`, `test_forecast_temperature_range`, `test_forecast_performance`) are each parametrized across 5 cities, expanding to 20 nodes. The remaining 27 functions collect 1:1.
+
+Running with `--env countries` hides the weather suite (those tests are skipped). Running with no `--env` flag shows both.
+
+### Test Outcomes
+
+| Allure colour | pytest outcome | Meaning |
+|--------------|---------------|---------|
+| Green | `PASSED` | API behaved as specified |
+| Orange | `SKIPPED` | Environment filter active (`--env countries` skips weather tests) — or xfail/xpass (see note) |
+| Red | `FAILED` | New failure — categorise and file bug immediately |
+
+> **XFAIL / XPASS in allure-pytest 2.15.3:** Both outcomes appear as `SKIPPED` status in the Allure JSON. To distinguish them from genuine skips, click the test and inspect the `statusDetails.message` field — xfail reasons start with `XFAIL` and include the bug ID. Newer allure-pytest versions may render these as a separate "expected failure" category.
+
+### Attachments on Every Test
+
+Each test that makes a live HTTP call attaches two artefacts, visible in the test detail pane:
+
+**`Response — metadata`** (plain text):
+```
+URL: https://restcountries.com/v3.1/name/germany
+Status: 200
+Time: 284.3ms
+```
+Performance tests also include `Threshold: 2000ms`. Collection tests include `Count: 250`.
+
+**`Response — body`** (JSON, truncated at 3000 chars):
+```json
+[
+  {
+    "name": { "common": "Germany", "official": "Federal Republic of Germany" },
+    "capital": ["Berlin"],
+    "population": 83240525,
+    ...
+  }
+]
+```
+
+### Special Attachments
+
+Some tests attach additional context:
+
+| Test | Extra attachment |
+|------|-----------------|
+| TC-C-007 (cross-reference) | Four attachments: `Step 1 — /name/germany` and `Step 2 — /region/Europe`, each with metadata + body |
+| TC-C-018 (case-insensitive) | Two named attachments: `/name/germany (lowercase)` and `/name/GERMANY (uppercase)` |
+| TC-C-020 (schema sample) | Full 10-country JSON array as its own attachment |
+| TC-C-021 (population boundary) | `Countries with population=0` JSON list when bug is triggered |
+| TC-W-002 (timezone) | `Timezone details` — `timezone` string + `utc_offset_seconds` |
+| TC-W-005/009 (boundary days) | Entry count returned vs expected in metadata |
+| TC-W-006 (temperature range) | One attachment per city (`<City> — temperature summary`) — min and max observed temperatures in the body text |
+| TC-W-007 (performance) | `Threshold: 3000ms` alongside actual time |
+
+### On Failure — BugReporter Attachment
+
+When a test fails, the `BugReporter` plugin fires and attaches an additional `Bug Report` artefact (plain text) containing:
+
+```
+# [FAIL] test_name — AssertionError: ...
+
+## Platform
+OS · Python version · Architecture
+
+## Steps to Reproduce
+pytest command · request URL · params
+
+## Expected Result
+exact assertion description
+
+## Actual Result
+actual value received
+
+## Data
+Request URL · Status Code · Response Time · Response snippet
+```
+
+The same content is also written to `bugs/<timestamp>_<test_name>.md` on disk.
+
+### Downloading from CI
+
+After every smoke CI run, Allure results are uploaded as a workflow artefact (7-day retention). To view locally:
+
+```bash
+# From the GitHub Actions run summary page, download allure-results.zip, then:
+unzip allure-results.zip -d allure-results/
+allure serve allure-results/
+```
+
+---
+
+## Using Claude Code Skills
+
+This repo ships three Claude Code skills in `.claude/skills/`. Each is a prompt template that, when invoked in a Claude Code session, generates framework-conformant code — type hints, HttpClient, BaseValidator contract, allure decorators, flaky markers, everything.
+
+### How to invoke a skill
+
+Skills are **prompt templates** stored in `.claude/skills/` — they run inside a Claude Code session, not in your shell. Open Claude Code in the repo directory (run `claude` in your terminal at the repo root, or open the Claude Code desktop/IDE extension). Then type the skill name prefixed with `/`:
+
+```
+/spec-parser
+/test-generator
+/validator-generator
+```
+
+Claude Code reads the skill file, fills in your inputs, and generates the output inline.
+
+---
+
+### `/spec-parser` — Extract endpoints from a spec document
+
+**When to use:** You have a PDF, OpenAPI YAML, or Markdown spec and want to extract endpoint definitions automatically.
+
+**Invocation:**
+```
+/spec-parser SPEC_PATH=specs/myapi_spec.pdf
+```
+
+**What it does:**
+1. Runs `SpecParserRegistry.parse(Path("specs/myapi_spec.pdf"))` with the registered parsers
+2. Prints every extracted `EndpointSpec` — env_name, method, path, base_url
+3. Updates `config/environments.yaml` with a new environment block (base_url only — thresholds left empty for you to fill)
+4. Prints the exact `/test-generator` invocation for each extracted endpoint
+
+**Sample output:**
+```
+Extracted 2 specs from specs/myapi_spec.pdf
+
+  EndpointSpec(env_name='myapi', method='GET',  path='/items/{id}',  base_url='https://api.example.com/v1')
+  EndpointSpec(env_name='myapi', method='POST', path='/items',       base_url='https://api.example.com/v1')
+
+environments.yaml updated — fill in thresholds before running tests:
+  myapi:
+    base_url: https://api.example.com/v1
+    thresholds:
+      max_response_time: 2.0    ← set based on SLA
+      min_results_count: 1      ← set based on minimum expected results
+
+Next steps:
+  /validator-generator SAMPLE_JSON=... CLASS_NAME=MyApiValidator OUTPUT_MODULE=myapi_validator
+  /test-generator ENDPOINT_URL=https://api.example.com/v1 ENDPOINT_PATH=/items/{id} HTTP_METHOD=GET ...
+```
+
+---
+
+### `/validator-generator` — Generate a typed validator from a JSON response
+
+**When to use:** You have a sample JSON response from an API and want a typed `BaseValidator` subclass that checks every field.
+
+**Invocation:**
+```
+/validator-generator
+  SAMPLE_JSON={"id": 42, "name": "Widget", "price": 9.99, "active": true}
+  ENDPOINT_NAME="MyAPI Item"
+  CLASS_NAME=MyApiValidator
+  OUTPUT_MODULE=myapi_validator
+```
+
+**What it generates** (`src/validators/myapi_validator.py`):
+
+```python
+from __future__ import annotations
+from typing import Any
+from src.validators.base_validator import BaseValidator, ValidationResult
+
+REQUIRED_FIELDS: tuple[str, ...] = ("id", "name", "price", "active")
+
+class MyApiValidator(BaseValidator):
+    def validate(self, data: Any) -> ValidationResult:
+        if not isinstance(data, dict):
+            self._fail("Response root must be a dict")
+            return self._pass()
+        for field in REQUIRED_FIELDS:
+            if field not in data:
+                self._fail(f"Missing required field '{field}'")
+        if "id" in data and not isinstance(data["id"], int):
+            self._fail(f"'id' must be int, got {type(data['id']).__name__}")
+        if "name" in data:
+            if not isinstance(data["name"], str) or not data["name"].strip():
+                self._fail("'name' must be a non-empty string")
+        if "price" in data and not isinstance(data["price"], (int, float)):
+            self._fail(f"'price' must be numeric, got {type(data['price']).__name__}")
+        if "active" in data and not isinstance(data["active"], bool):
+            self._fail(f"'active' must be bool, got {type(data['active']).__name__}")
+        return self._pass()
+```
+
+**Guarantees of generated code:**
+- `REQUIRED_FIELDS` is a module-level constant (Code Style Rule 8)
+- All fields checked without short-circuiting — every error collected before returning
+- Full type hints (Code Style Rule 2)
+- No `print()`, no `os.path`, no direct `requests`
+
+---
+
+### `/test-generator` — Generate a complete pytest test file
+
+**When to use:** You have an endpoint spec and a validator, and want a ready-to-run test file.
+
+**Invocation:**
+```
+/test-generator
+  ENDPOINT_URL=https://api.example.com/v1
+  ENDPOINT_PATH=/items/{id}
+  HTTP_METHOD=GET
+  RESPONSE_FIELDS=id,name,price,active
+  ENV_NAME=myapi
+  VALIDATOR_CLASS=MyApiValidator
+  DATA_FILE=test_data/myapi_items.json
+```
+
+**What it generates** (`tests/test_myapi_items.py`):
+
+```python
+from __future__ import annotations
+import json
+from pathlib import Path
+from typing import Any
+import allure
+import pytest
+from src.http_client import HttpClient
+from src.validators.myapi_validator import MyApiValidator
+
+pytestmark = [pytest.mark.myapi, allure.suite("myapi")]
+
+ITEMS = json.loads((Path(__file__).parent.parent / "test_data" / "myapi_items.json").read_text())
+
+
+def _attach(resp: Any, name: str = "Response") -> None:
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms",
+        name=f"{name} — metadata", attachment_type=allure.attachment_type.TEXT,
+    )
+    if resp.json_body is not None:
+        allure.attach(json.dumps(resp.json_body, indent=2)[:3000],
+                      name=f"{name} — body", attachment_type=allure.attachment_type.JSON)
+
+
+@allure.title("TC-M-001: Item lookup returns valid schema")
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_item_positive(env_config: dict[str, Any]) -> None:
+    cfg = env_config["myapi"]
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/items/1")
+    _attach(resp)
+    assert resp.status_code == 200
+    result = MyApiValidator().validate(resp.json_body)
+    assert result.passed, result.errors
+
+
+@allure.title("TC-M-002: Unknown item returns 404")
+@pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_item_negative(env_config: dict[str, Any]) -> None:
+    cfg = env_config["myapi"]
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/items/999999999")
+    _attach(resp)
+    assert resp.status_code == 404, f"Expected 404, got {resp.status_code}"
+
+
+@allure.title("TC-M-003: Item ID boundary (id=0) returns 4xx")
+@pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_item_boundary(env_config: dict[str, Any]) -> None:
+    cfg = env_config["myapi"]
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/items/0")
+    _attach(resp)
+    assert resp.status_code == 404, f"Expected 404 for id=0, got {resp.status_code}"
+
+
+@allure.title("TC-M-004: Item lookup response time within threshold")
+@pytest.mark.performance
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_item_performance(env_config: dict[str, Any]) -> None:
+    cfg = env_config["myapi"]
+    max_ms = cfg["thresholds"]["max_response_time"] * 1000
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/items/1")
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nThreshold: {max_ms:.0f}ms",
+        name="Response — metadata", attachment_type=allure.attachment_type.TEXT,
+    )
+    assert resp.status_code == 200
+    assert resp.response_time_ms < max_ms, f"SLA: {resp.response_time_ms:.0f}ms > {max_ms:.0f}ms"
+```
+
+**Guarantees of generated code:**
+- `_attach()` helper included — all responses appear in Allure
+- `@pytest.mark.flaky(reruns=2, reruns_delay=2)` on every live-API test (Testing Standard 10)
+- All thresholds from `env_config` — never hardcoded (Rule 1)
+- `pathlib.Path` for test data, `HttpClient` for HTTP (Code Style Rules 4, 6)
+- `assert result.passed, result.errors` pattern (Code Style Rule 5)
+- `allure.suite(ENV_NAME)` + `pytest.mark.ENV_NAME` in `pytestmark` (Testing Standard 7)
+
+---
+
+### Complete skill workflow example
+
+```
+# In a Claude Code session at the repo root:
+
+You:   /spec-parser SPEC_PATH=specs/payments_api.pdf
+
+Claude: Extracted 3 specs from specs/payments_api.pdf
+        EndpointSpec(env_name='payments', method='GET',  path='/charges/{id}', ...)
+        EndpointSpec(env_name='payments', method='POST', path='/charges',      ...)
+        EndpointSpec(env_name='payments', method='GET',  path='/refunds/{id}', ...)
+        environments.yaml updated. Fill in thresholds, then:
+          /validator-generator SAMPLE_JSON=... CLASS_NAME=ChargeValidator ...
+          /test-generator ENDPOINT_URL=https://api.stripe.com/v1 ENV_NAME=payments ...
+
+You:   /validator-generator
+         SAMPLE_JSON={"id": "ch_123", "amount": 2000, "currency": "usd", "status": "succeeded"}
+         ENDPOINT_NAME="Charge"
+         CLASS_NAME=ChargeValidator
+         OUTPUT_MODULE=charge_validator
+
+Claude: [writes src/validators/charge_validator.py]
+        ChargeValidator validates: id (str), amount (int, > 0), currency (str, 3 chars), status (str)
+
+You:   /test-generator
+         ENDPOINT_URL=https://api.stripe.com/v1
+         ENDPOINT_PATH=/charges/{id}
+         HTTP_METHOD=GET
+         RESPONSE_FIELDS=id,amount,currency,status
+         ENV_NAME=payments
+         VALIDATOR_CLASS=ChargeValidator
+         DATA_FILE=test_data/charge_ids.json
+
+Claude: [writes tests/test_payments_charges.py]
+        4 tests: positive, negative (invalid id → 404), boundary (id="" → 400), performance
+
+# Now run:
+pytest --env payments -v --alluredir=allure-results
+allure serve allure-results
+# → payments suite visible, all 4 tests, full response attachments
+```
 
 ---
 
