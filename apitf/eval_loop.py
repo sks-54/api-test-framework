@@ -113,7 +113,7 @@ def _claude_cli_call(prompt: str, model: str) -> str:
     and subprocess argument-list timeouts on long prompts.
     """
     result = subprocess.run(
-        ["claude", "--model", model, "-p", "-"],
+        ["claude", "--model", model, "-p", "--allowedTools", "", "--output-format", "text", "-"],
         input=prompt,
         capture_output=True, text=True, timeout=180,
     )
@@ -530,20 +530,74 @@ def eval_loop(
         else:
             break
 
-    # ── Reflector ──────────────────────────────────────────────────────────
-    print(f"\n[reflector] ── Opus reflector review ────────────────────────────")
-    review = _reflect_test_file(env, test_file, last_output, reflector_model, api_key=resolved_key)
-    score = review.get("score", -1)
-    passed_review = review.get("passed", False)
-    print(f"[reflector] Score   : {score}/100")
-    print(f"[reflector] Passed  : {'✓ yes' if passed_review else '✗ no (threshold = 70)'}")
-    if review.get("deviations"):
-        print("[reflector] Deviations:")
-        for d in review["deviations"]:
-            print(f"  - {d}")
-    if review.get("corrections"):
-        print("[reflector] Corrections:")
-        for c in review["corrections"]:
-            print(f"  → {c}")
+    # ── Reflector + correction feedback loop ───────────────────────────────
+    REFLECTOR_MAX_ITER = 2  # max rounds of Opus → apply corrections → re-score
+    for reflector_round in range(1, REFLECTOR_MAX_ITER + 2):
+        print(f"\n[reflector] ── Opus reflector review (round {reflector_round}) ──────────────")
+        review = _reflect_test_file(env, test_file, last_output, reflector_model, api_key=resolved_key)
+        score = review.get("score", -1)
+        passed_review = review.get("passed", False)
+        print(f"[reflector] Score   : {score}/100")
+        print(f"[reflector] Passed  : {'✓ yes' if passed_review else '✗ no (threshold = 70)'}")
+        if review.get("deviations"):
+            print("[reflector] Deviations:")
+            for d in review["deviations"]:
+                print(f"  - {d}")
+        if review.get("corrections"):
+            print("[reflector] Corrections:")
+            for c in review["corrections"]:
+                print(f"  → {c}")
+
+        if passed_review or score < 0:
+            # Passed threshold, or no live review available — done
+            break
+
+        if reflector_round > REFLECTOR_MAX_ITER:
+            print(f"[reflector] Max correction rounds ({REFLECTOR_MAX_ITER}) reached — stopping.")
+            break
+
+        corrections = review.get("corrections", [])
+        if not corrections or not resolved_key:
+            break
+
+        # Apply Opus corrections via AI re-generation
+        print(f"\n[reflector] Applying {len(corrections)} correction(s) via {model} …")
+        current_src = test_file.read_text(encoding="utf-8")
+        corrections_text = "\n".join(f"- {c}" for c in corrections)
+        fix_prompt = f"""You are fixing a pytest test file based on a QA architect's review.
+
+## Current file
+```python
+{current_src}
+```
+
+## Required corrections (apply ALL of these)
+{corrections_text}
+
+Framework rules (must not be broken):
+- All thresholds/URLs from env_config — zero hardcoded numbers or hostnames
+- HttpClient used as context manager
+- @pytest.mark.flaky(reruns=2, reruns_delay=2) on every live HTTP call
+- Negative tests assert EXACT status code (never `in (...)` or `>= 400`)
+- assert result.passed, result.errors for all validator calls
+- Full type hints on every function
+
+Output ONLY the corrected Python source — no markdown fences, no prose."""
+
+        try:
+            fixed_src = _make_api_call(fix_prompt, model, resolved_key)
+            fixed_src = _strip_fences(fixed_src)
+            test_file.write_text(fixed_src, encoding="utf-8")
+            print(f"[reflector] Test file updated — re-running pytest …")
+            # Re-run pytest to confirm corrections didn't break anything
+            last_output, exit_code = _run_pytest(env, test_file)
+            print(last_output)
+            if exit_code != 0:
+                print("[reflector] Corrections introduced failures — reverting to previous source.")
+                test_file.write_text(current_src, encoding="utf-8")
+                break
+        except Exception as exc:
+            print(f"[reflector] Correction application failed: {exc}", file=sys.stderr)
+            break
 
     return results
