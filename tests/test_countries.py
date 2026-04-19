@@ -492,3 +492,90 @@ def test_all_population_boundary(env_config: dict[str, Any]) -> None:
         f"Found {len(zero_pop)} with population=0: {zero_pop}. "
         f"Spec deviation — see BUG-003 / GitHub Issue #7."
     )
+
+
+# ---------------------------------------------------------------------------
+# TC-C-022  Equivalence — Americas is a valid region partition (returns 200)
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-C-022: Americas region returns 200 with non-empty list")
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_americas_region_valid_partition(env_config: dict[str, Any]) -> None:
+    cfg = env_config["countries"]
+    base_url = cfg["base_url"]
+    with HttpClient(base_url) as client:
+        resp = client.get("/region/americas")
+    _attach(resp, name="/region/americas")
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+    assert isinstance(resp.json_body, list), "Expected list response"
+    assert len(resp.json_body) > 0, "Expected non-empty list for Americas region"
+
+
+# ---------------------------------------------------------------------------
+# TC-C-023  Equivalence — region name is case-insensitive (EUROPE == europe)
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-C-023: Region name lookup is case-insensitive (EUROPE returns 200)")
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_region_name_case_insensitive(env_config: dict[str, Any]) -> None:
+    cfg = env_config["countries"]
+    base_url = cfg["base_url"]
+    with HttpClient(base_url) as client:
+        resp_lower = client.get("/region/europe")
+        resp_upper = client.get("/region/EUROPE")
+    _attach(resp_lower, name="/region/europe (lowercase)")
+    _attach(resp_upper, name="/region/EUROPE (uppercase)")
+    assert resp_lower.status_code == 200, f"Expected 200 for lowercase, got {resp_lower.status_code}"
+    assert resp_upper.status_code == 200, (
+        f"Expected 200 for uppercase region — API should be case-insensitive, got {resp_upper.status_code}"
+    )
+    assert isinstance(resp_lower.json_body, list) and isinstance(resp_upper.json_body, list)
+    assert len(resp_lower.json_body) == len(resp_upper.json_body), (
+        f"Case variants returned different counts: lower={len(resp_lower.json_body)}, "
+        f"upper={len(resp_upper.json_body)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# TC-C-024  Negative — special characters in name parameter return 4xx, not 500
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-C-024: Special characters in /name/ return 4xx (not 500)")
+@pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_special_chars_in_name_returns_4xx(env_config: dict[str, Any]) -> None:
+    cfg = env_config["countries"]
+    base_url = cfg["base_url"]
+    with HttpClient(base_url) as client:
+        resp = client.get("/name/!@#$%special")
+    _attach(resp, name="/name/!@#$%special")
+    assert resp.status_code < 500, (
+        f"Expected 4xx for special-char name, got {resp.status_code}. "
+        f"A 5xx response indicates an unhandled server exception — report as bug."
+    )
+    assert resp.status_code == 404, (
+        f"Expected 404 for non-existent special-char name, got {resp.status_code}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# TC-C-025  Negative — invalid field name in ?fields= returns 200 (API accepts gracefully)
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-C-025: Invalid field name in ?fields= returns 200 with empty objects")
+@pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_invalid_field_name_returns_200_gracefully(env_config: dict[str, Any]) -> None:
+    cfg = env_config["countries"]
+    base_url = cfg["base_url"]
+    with HttpClient(base_url) as client:
+        resp = client.get("/all", params={"fields": "invalidfield"})
+    _attach(resp, name="/all?fields=invalidfield")
+    assert resp.status_code == 200, (
+        f"Expected 200 (API returns empty objects for unknown field names), got {resp.status_code}. "
+        f"A 5xx indicates an unhandled server exception — report as bug."
+    )
+    assert isinstance(resp.json_body, list), "Expected list response for /all"
+    assert len(resp.json_body) > 0, "Expected non-empty list (countries with empty {} objects)"

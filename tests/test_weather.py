@@ -322,3 +322,156 @@ def test_forecast_south_pole_boundary(env_config: dict[str, Any]) -> None:
     )
     result = WeatherValidator().validate(resp.json_body)
     assert result.passed, result.errors
+
+
+# ---------------------------------------------------------------------------
+# TC-W-011  Equivalence — temperature_unit=celsius is a valid partition (returns 200)
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-W-011: temperature_unit=celsius returns 200 with valid forecast")
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_forecast_celsius_unit_valid(env_config: dict[str, Any]) -> None:
+    cfg = env_config["weather"]
+    base_url = cfg["base_url"]
+    city = CITIES[0]  # Berlin
+    with HttpClient(base_url) as client:
+        resp = client.get(
+            "/forecast",
+            params={
+                "latitude": city["latitude"],
+                "longitude": city["longitude"],
+                "hourly": HOURLY_PARAMS,
+                "temperature_unit": "celsius",
+                "forecast_days": FORECAST_DAYS,
+            },
+        )
+    _attach(resp, name="Berlin forecast (celsius)")
+    assert resp.status_code == 200, f"Expected 200 for temperature_unit=celsius, got {resp.status_code}"
+    result = WeatherValidator().validate(resp.json_body)
+    assert result.passed, result.errors
+
+
+# ---------------------------------------------------------------------------
+# TC-W-012  Equivalence — temperature_unit=kelvin is an invalid partition (returns 400)
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-W-012: temperature_unit=kelvin returns 400 with error body")
+@pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_forecast_kelvin_unit_invalid(env_config: dict[str, Any]) -> None:
+    cfg = env_config["weather"]
+    base_url = cfg["base_url"]
+    city = CITIES[0]  # Berlin
+    with HttpClient(base_url) as client:
+        resp = client.get(
+            "/forecast",
+            params={
+                "latitude": city["latitude"],
+                "longitude": city["longitude"],
+                "hourly": HOURLY_PARAMS,
+                "temperature_unit": "kelvin",
+            },
+        )
+    _attach(resp, name="Berlin forecast (kelvin — invalid)")
+    assert resp.status_code == 400, (
+        f"Expected 400 for temperature_unit=kelvin (invalid unit), got {resp.status_code}. "
+        f"Spec deviation if not 400 — kelvin is not a supported temperature unit."
+    )
+    assert isinstance(resp.json_body, dict) and resp.json_body.get("error"), (
+        "Expected JSON error body with 'error' field for invalid temperature unit"
+    )
+
+
+# ---------------------------------------------------------------------------
+# TC-W-013  Negative — non-numeric latitude returns 400
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-W-013: Non-numeric latitude (lat=abc) returns 400")
+@pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_forecast_nonnumeric_lat_returns_400(env_config: dict[str, Any]) -> None:
+    cfg = env_config["weather"]
+    base_url = cfg["base_url"]
+    with HttpClient(base_url) as client:
+        resp = client.get(
+            "/forecast",
+            params={"latitude": "abc", "longitude": 13.41, "hourly": HOURLY_PARAMS},
+        )
+    _attach(resp, name="Non-numeric latitude (abc)")
+    assert resp.status_code == 400, (
+        f"Expected 400 for non-numeric latitude 'abc', got {resp.status_code}. "
+        f"REST convention: invalid parameter type should return 400."
+    )
+
+
+# ---------------------------------------------------------------------------
+# TC-W-014  State — hourly timestamps are sequential with 1-hour intervals
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-W-014: Hourly timestamps are sequential with contiguous 1-hour intervals")
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_forecast_hourly_timestamps_sequential(env_config: dict[str, Any]) -> None:
+    from datetime import datetime
+
+    cfg = env_config["weather"]
+    base_url = cfg["base_url"]
+    city = CITIES[0]  # Berlin
+    with HttpClient(base_url) as client:
+        resp = client.get(
+            "/forecast",
+            params={
+                "latitude": city["latitude"],
+                "longitude": city["longitude"],
+                "hourly": HOURLY_PARAMS,
+                "forecast_days": FORECAST_DAYS,
+            },
+        )
+    _attach(resp, name="Berlin forecast (timestamp check)")
+    assert resp.status_code == 200
+    times = resp.json_body.get("hourly", {}).get("time", []) if isinstance(resp.json_body, dict) else []
+    assert len(times) >= 2, f"Expected at least 2 hourly timestamps, got {len(times)}"
+    parsed = [datetime.fromisoformat(t) for t in times]
+    gaps = [(parsed[i + 1] - parsed[i]).total_seconds() for i in range(len(parsed) - 1)]
+    non_hourly = [g for g in gaps if g != 3600]
+    allure.attach(
+        f"Timestamps checked: {len(times)}\nFirst: {times[0]}\nLast: {times[-1]}\n"
+        f"Non-hourly gaps: {non_hourly}",
+        name="Timestamp sequential check",
+        attachment_type=allure.attachment_type.TEXT,
+    )
+    assert not non_hourly, (
+        f"Expected all hourly intervals to be exactly 3600s. "
+        f"Found {len(non_hourly)} non-hourly gaps: {non_hourly}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# TC-W-015  Equivalence — unknown query parameter is silently ignored (returns 200)
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-W-015: Unknown query parameter is silently ignored — returns 200")
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_forecast_unknown_param_ignored(env_config: dict[str, Any]) -> None:
+    cfg = env_config["weather"]
+    base_url = cfg["base_url"]
+    city = CITIES[0]  # Berlin
+    with HttpClient(base_url) as client:
+        resp = client.get(
+            "/forecast",
+            params={
+                "latitude": city["latitude"],
+                "longitude": city["longitude"],
+                "hourly": HOURLY_PARAMS,
+                "forecast_days": FORECAST_DAYS,
+                "unknownparam": "test",
+            },
+        )
+    _attach(resp, name="Berlin forecast (with unknown param)")
+    assert resp.status_code == 200, (
+        f"Expected 200 (unknown params silently ignored), got {resp.status_code}."
+    )
+    result = WeatherValidator().validate(resp.json_body)
+    assert result.passed, result.errors

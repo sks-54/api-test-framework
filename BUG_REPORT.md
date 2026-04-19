@@ -213,6 +213,98 @@ time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-33.8688&longitude
 
 ---
 
+### BUG-006
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-006 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/14 |
+| **Test** | TC-S-004 |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level bug — reproducible everywhere) |
+| **Python** | 3.11 (not platform-specific) |
+| **Title** | `POST /forecast` returns 415 Unsupported Media Type instead of 405 Method Not Allowed |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 405, actual HTTP 415
+curl -s -o /dev/null -w "%{http_code}" -X POST "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m"
+curl -s -X POST "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m" | python3 -m json.tool
+```
+
+**Expected (per RFC 7231 §6.5.5):** HTTP 405 — server must return 405 when the method is not allowed for the resource.
+
+**Actual:** HTTP 415 Unsupported Media Type — 415 is only correct when the method IS allowed but the content-type is wrong. Since POST is not a valid method for `/forecast`, the correct response is 405.
+
+**Data:**
+- Request: `POST https://api.open-meteo.com/v1/forecast?...`
+- Status Code: 415
+- RFC violation: RFC 7231 §6.5.5 (Method Not Allowed) vs §6.5.13 (Unsupported Media Type)
+
+---
+
+### BUG-007
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-007 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/15 |
+| **Test** | TC-S-005 |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level — reproducible everywhere) |
+| **Python** | 3.11 (not platform-specific) |
+| **Title** | REST Countries API missing OWASP baseline security headers |
+
+**curl (reproduces bug):**
+```bash
+# Should return Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options — none present
+curl -sI "https://restcountries.com/v3.1/name/germany" | grep -i "strict-transport\|x-content-type\|x-frame"
+```
+
+**Expected:** Response includes at minimum: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` (OWASP Security Headers reference).
+
+**Actual:** None of the three OWASP baseline security headers are present in any response from `restcountries.com`.
+
+**Data:**
+- Endpoint: `https://restcountries.com/v3.1/name/germany`
+- Missing headers: `strict-transport-security`, `x-content-type-options`, `x-frame-options`
+
+---
+
+### BUG-008
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-008 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/16 |
+| **Test** | TC-S-006 |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level — reproducible everywhere) |
+| **Python** | 3.11 (not platform-specific) |
+| **Title** | Open-Meteo API missing OWASP baseline security headers |
+
+**curl (reproduces bug):**
+```bash
+# Should return Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options — none present
+curl -sI "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m" | grep -i "strict-transport\|x-content-type\|x-frame"
+```
+
+**Expected:** Response includes at minimum: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`.
+
+**Actual:** None of the three OWASP baseline security headers are present in any response from `api.open-meteo.com`.
+
+**Data:**
+- Endpoint: `https://api.open-meteo.com/v1/forecast?...`
+- Missing headers: `strict-transport-security`, `x-content-type-options`, `x-frame-options`
+
+---
+
 ## Resolved Bugs
 
 _None yet._

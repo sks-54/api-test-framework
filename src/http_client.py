@@ -52,10 +52,25 @@ class HttpClient:
         return session
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> HttpResponse:
+        return self.request("GET", path, params=params)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> HttpResponse:
         url = f"{self._base_url}{path}"
-        logger.debug("GET %s params=%r", url, params)
+        logger.debug("%s %s params=%r", method, url, params)
         start = time.monotonic()
-        resp = self._session.get(url, params=params, timeout=self._timeout)
+        resp = self._session.request(
+            method,
+            url,
+            params=params,
+            headers=extra_headers,
+            timeout=self._timeout,
+        )
         elapsed_ms = (time.monotonic() - start) * 1000
 
         json_body: Any = None
@@ -64,7 +79,7 @@ class HttpClient:
         except ValueError:
             logger.warning("Response from %s is not JSON (status=%d)", url, resp.status_code)
 
-        logger.debug("GET %s → %d in %.1fms", url, resp.status_code, elapsed_ms)
+        logger.debug("%s %s → %d in %.1fms", method, url, resp.status_code, elapsed_ms)
         return HttpResponse(
             status_code=resp.status_code,
             json_body=json_body,
