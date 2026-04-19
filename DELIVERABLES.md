@@ -50,12 +50,12 @@
 ## CI Pipeline
 
 - [x] `.github/workflows/ci.yml` triggers on push to any branch
-- [x] Python environment setup + `pip install -r requirements.txt`
-- [x] Full test suite runs (both environments)
+- [x] Python environment setup + `pip install --upgrade pip && pip install -e ".[test]"` (pyproject.toml)
+- [x] Full test suite runs (both environments + security + baseline = 88 tests)
 - [x] Test report uploaded as pipeline artifact
 - [x] Pipeline fails if any test fails or quality gate breached
 - [x] Bonus: test summary printed in job output
-- [x] Matrix: `ubuntu-latest`, `windows-latest`, `macos-latest` × Python `3.9, 3.10, 3.11, 3.12`
+- [x] 3-stage matrix: smoke(ubuntu/3.11) → platform(windows+mac/3.11) → versions(ubuntu/3.9+3.12) — 6 jobs total
 
 ## Claude Code Artifacts
 
@@ -71,18 +71,21 @@
 
 ## Extensibility
 
-- [x] `src/validators/base_validator.py` — abstract `BaseValidator` contract
-- [x] `src/spec_parser/base_parser.py` — abstract `EndpointSpec` + parser ABC
-- [x] `src/spec_parser/pdf_parser.py` — fully implemented PDF spec parser
-- [x] `src/spec_parser/openapi_parser.py` — extensible stub (v1.1)
-- [x] `src/spec_parser/markdown_parser.py` — extensible stub (v1.1)
-- [x] `src/http_client.py` — shared HTTP wrapper (retry, timing, platform-safe)
+- [x] `apitf/validators/base_validator.py` — abstract `BaseValidator` contract
+- [x] `apitf/spec_parser/base_parser.py` — abstract `EndpointSpec` + parser ABC
+- [x] `apitf/spec_parser/pdf_parser.py` — fully implemented PDF spec parser
+- [x] `apitf/spec_parser/openapi_parser.py` — extensible stub (v1.1)
+- [x] `apitf/spec_parser/markdown_parser.py` — extensible stub (v1.1)
+- [x] `apitf/http_client.py` — shared HTTP wrapper (retry, timing, platform-safe)
 
 ## Submission
 
 - [x] GitHub repo: `sks-54/api-test-framework` (new, public)
 - [x] Phased PRs (one per phase, each Opus-reviewed before merge)
-- [x] `README.md` with setup, run instructions, 5 Mermaid architecture diagrams, design decisions
+- [x] `README.md` with setup, run instructions, 6 Mermaid architecture diagrams, design decisions
+- [x] `INSTALL.md` — platform-specific guide (macOS/Linux/Windows)
+- [x] `wiki/` — 6 reference pages (Components, Skills, Bug Lifecycle, Design Decisions, Rules, Troubleshooting)
+- [x] `pyproject.toml` — installable package (`pip install -e ".[test]"`)
 - [x] Tagged `v1.0.0` once all items above are checked
 - [x] `ENHANCEMENTS.md` tracking post-v1.0.0 roadmap
 

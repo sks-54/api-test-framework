@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.spec_parser.base_parser import BaseSpecParser, EndpointSpec
+from apitf.spec_parser.base_parser import BaseSpecParser, EndpointSpec
 
 
 class OpenAPIParser(BaseSpecParser):

@@ -24,7 +24,7 @@ import allure
 import pytest
 import yaml
 
-from src.http_client import HttpClient
+from apitf.http_client import HttpClient
 
 pytestmark = [pytest.mark.security, allure.suite("security")]
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pdfplumber
 
-from src.spec_parser.base_parser import BaseSpecParser, EndpointSpec
+from apitf.spec_parser.base_parser import BaseSpecParser, EndpointSpec
 
 logger = logging.getLogger(__name__)
 

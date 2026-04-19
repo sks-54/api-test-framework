@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.validators.base_validator import BaseValidator, ValidationResult
+from apitf.validators.base_validator import BaseValidator, ValidationResult
 
 REQUIRED_FIELDS: tuple[str, ...] = ("name", "capital", "population", "currencies", "languages")
 POPULATION_MIN: int = 1

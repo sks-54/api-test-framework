@@ -58,7 +58,7 @@ Every endpoint covered by this framework requires at least one test that
 instantiates the appropriate `BaseValidator` subclass and asserts `.passed`.
 
 ```python
-from src.validators.country_validator import CountryValidator
+from apitf.validators.country_validator import CountryValidator
 
 def test_germany_schema(env_config):
     result = CountryValidator().validate(response.json_body[0])

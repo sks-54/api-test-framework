@@ -68,7 +68,7 @@ def load_bug_registry() -> dict[str, dict[str, str]]:
     return registry
 
 
-_KNOWN_VIOLATION_TYPES: frozenset[str] = frozenset({"method", "security_headers", "content_negotiation"})
+_KNOWN_VIOLATION_TYPES: frozenset[str] = frozenset({"method", "security_headers", "content_negotiation", "performance_sla"})
 _KNOWN_VIOLATION_METHODS: frozenset[str] = frozenset({"POST", "DELETE", "PUT", "PATCH"})
 
 

@@ -1,6 +1,6 @@
 # Document Parsing Rules — Spec Parser Subsystem
 
-These rules govern all code in `src/spec_parser/`. Violations corrupt
+These rules govern all code in `apitf/spec_parser/`. Violations corrupt
 `EndpointSpec` objects and produce silent test-generation failures.
 
 ---

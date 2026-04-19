@@ -17,8 +17,8 @@ Extract API endpoint specs from: {SPEC_PATH}
 
 ### Step 1 — Parse via registry
     from pathlib import Path
-    from src.spec_parser.base_parser import SpecParserRegistry
-    from src.spec_parser.pdf_parser import PDFParser
+    from apitf.spec_parser.base_parser import SpecParserRegistry
+    from apitf.spec_parser.pdf_parser import PDFParser
 
     registry = SpecParserRegistry()
     registry.register(PDFParser())

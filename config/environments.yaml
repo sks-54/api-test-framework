@@ -58,3 +58,7 @@ weather:
         bug_id: BUG-008
         issue: https://github.com/sks-54/api-test-framework/issues/16
         reason: "api.open-meteo.com missing HSTS, X-Content-Type-Options, X-Frame-Options"
+      - type: performance_sla
+        bug_id: BUG-004
+        issue: https://github.com/sks-54/api-test-framework/issues/8
+        reason: "Open-Meteo /forecast consistently times out from CI runner IPs — SLA violation"

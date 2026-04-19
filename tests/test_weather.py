@@ -10,9 +10,9 @@ from typing import Any
 import allure
 import pytest
 
-from src.http_client import HttpClient
-from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
-from src.validators.weather_validator import WeatherValidator
+from apitf.http_client import HttpClient
+from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS
+from apitf.validators.weather_validator import WeatherValidator
 
 pytestmark = [pytest.mark.weather, allure.suite("weather")]
 

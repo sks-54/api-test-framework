@@ -48,18 +48,18 @@ Allowed fixture scopes:
 - `session` — read-only config only (`env_config`)
 - `module` / `class` — only for grouping related setup with no side-effects
 
-Shared helpers (auth setup, custom request builders) belong in `src/` or
+Shared helpers (auth setup, custom request builders) belong in `apitf/` or
 `tests/conftest.py`, never duplicated per test file.
 
 ## Rule 5 — Extensibility Gate
 
 The three-step path is the minimum required to add a new API:
 1. Add entry to `config/environments.yaml`
-2. Add `src/validators/<new>_validator.py` extending `BaseValidator`
+2. Add `apitf/validators/<new>_validator.py` extending `BaseValidator`
 3. Add `tests/test_<new>.py` using the `environment` fixture
 
 Auth, custom fixtures, and shared helpers are permitted only via shared
-modules in `src/` or `conftest.py` — never as per-API scaffolding that
+modules in `apitf/` or `conftest.py` — never as per-API scaffolding that
 breaks the three-step contract. If the minimum drifts above three steps,
 flag as STRUCTURAL_FAILURE.
 
@@ -83,13 +83,13 @@ Before any `git push`:
 2. `pytest --collect-only -q` — import errors surface here
 3. `python -c "import yaml; yaml.safe_load(open('config/environments.yaml'))"` — YAML valid
 4. Company name scan (see Rule 12)
-5. `python -m mypy src/ tests/ --ignore-missing-imports` — no type errors
+5. `python -m mypy apitf/ tests/ --ignore-missing-imports` — no type errors
 6. `python scripts/verify_bug_markers.py` — every open bug in BUG_REPORT.md has a matching `@pytest.mark.xfail`
 
-Step 6 is **machine-enforced** by the git pre-push hook (installed via `bash scripts/setup_hooks.sh`).
+Step 6 is **machine-enforced** by the git pre-push hook (installed via `python scripts/setup_hooks.py`).
 The hook blocks the push if it exits non-zero. This cannot be forgotten.
 
-Use `bash scripts/push.sh` instead of `git push`. It pushes and immediately
+Use `python scripts/push.py` instead of `git push`. It pushes and immediately
 runs `gh run watch` — the terminal blocks until CI completes (Rule 18 enforced).
 
 ## Rule 8a — Every Rule Must Be Enforced
@@ -116,8 +116,8 @@ enforcement mechanism.** Promote the rule to the next level:
 - Rule 19 (no merge with failures): GitHub branch protection + quality gate job — **blocks merge**
 - Rule 12 (company name scan): in Rule 8 checklist, run before push — **scripted**
 
-Use `bash scripts/push.sh` instead of `git push` on this project.
-Use `bash scripts/setup_hooks.sh` once after cloning to install the pre-push hook.
+Use `python scripts/push.py` instead of `git push` on this project.
+Use `python scripts/setup_hooks.py` once after cloning to install the pre-push hook.
 
 ## Rule 9 — No Direct Pushes to Main
 
@@ -243,7 +243,7 @@ in test files is forbidden.
 Rationale: mocked tests caught a prod migration failure only after it shipped
 (similar incident documented in Rule 6). If the live endpoint is unavailable,
 classify the failure as ENV_FAILURE (Rule 10) and retry — do not substitute a
-mock. Test doubles belong in unit tests of src/ internals only, never in
+mock. Test doubles belong in unit tests of apitf/ internals only, never in
 `tests/test_*.py` files that verify API contract.
 
 ```python
@@ -347,7 +347,7 @@ the test can fail — regardless of which platform or OS triggered the first obs
 
 ```python
 # CORRECT — import the adapter; never inline the tuple
-from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
+from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 
 @pytest.mark.xfail(
     strict=False,
@@ -371,7 +371,7 @@ from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 )
 ```
 
-`SLA_FAILURE_EXCEPTIONS` is defined in `src/sla_exceptions.py` and is the single place to
+`SLA_FAILURE_EXCEPTIONS` is defined in `apitf/sla_exceptions.py` and is the single place to
 update if a new exception type is ever needed. The module documents why the two types are
 exhaustive so future maintainers don't second-guess the design.
 

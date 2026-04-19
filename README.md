@@ -52,7 +52,7 @@ graph TD
         DATA["test_data/cities.json\nlat · lon · timezone\nfor 5 parametrized cities"]
     end
 
-    subgraph Framework_Core["Framework Core — src/"]
+    subgraph Framework_Core["Framework Core — apitf/"]
         HC["HttpClient\nHTTPS enforcement\nretry on 5xx\nresponse timing\nJSON parsing"]
         BV["BaseValidator ABC\nvalidate() contract\ncollects ALL errors\nnever short-circuits"]
         CV["CountryValidator\nschema: name · capital\npopulation · currencies\nlanguages"]
@@ -195,13 +195,13 @@ sequenceDiagram
     end
 
     M->>M: verify_bug_markers.py (pre-push hook)
-    M->>CI: bash scripts/push.sh (blocks until complete)
+    M->>CI: python scripts/push.py (blocks until complete)
 
     alt QUALITY_FAILURE
         CI-->>M: wrong status / schema mismatch
         M->>GH: gh issue create --label bug
         M->>M: @pytest.mark.xfail(strict=True, reason="BUG-NNN / Issue #N")
-        M->>CI: bash scripts/push.sh again → CI green
+        M->>CI: python scripts/push.py again → CI green
     else ENV_FAILURE
         CI-->>M: transient network timeout
         M->>M: retry up to 2 times (flaky marker)
@@ -230,7 +230,7 @@ flowchart TD
 
     S1["Step 1 — Config\nconfig/environments.yaml\n\nAdd new top-level key:\nnewapi:\n  base_url: https://api.example.com/v1\n  thresholds:\n    max_response_time: 2.0\n    min_results_count: 1"]
 
-    S2["Step 2 — Validator\nsrc/validators/newapi_validator.py\n\nExtend BaseValidator:\nclass NewApiValidator(BaseValidator):\n    def validate(self, data) -> ValidationResult:\n        # check required fields\n        return self._pass()"]
+    S2["Step 2 — Validator\napitf/validators/newapi_validator.py\n\nExtend BaseValidator:\nclass NewApiValidator(BaseValidator):\n    def validate(self, data) -> ValidationResult:\n        # check required fields\n        return self._pass()"]
 
     S3["Step 3 — Tests\ntests/test_newapi.py\n\nUse env_config fixture:\nwith HttpClient(cfg['base_url']) as client:\n    resp = client.get('/items/1')\nresult = NewApiValidator().validate(resp.json_body)\nassert result.passed, result.errors"]
 
@@ -250,7 +250,7 @@ Shows the 6-job 3-stage pipeline that enforces quality before every merge.
 
 ```mermaid
 flowchart TD
-    PUSH["git push\nbash scripts/push.sh"]
+    PUSH["git push\npython scripts/push.py"]
 
     TR{"Trigger filter\npaths-ignore:\n- '*.md'\n- DELIVERABLES.md\n- CLAUDE_LOG.md"}
 
@@ -316,7 +316,7 @@ flowchart TD
 
     GH --> XF["3. Add xfail marker to test:\n@pytest.mark.xfail(\n    strict=True,\n    raises=AssertionError,\n    reason='Known API bug BUG-NNN / Issue #N'\n)"]
 
-    XF --> PUSH["4. Push:\nbash scripts/push.sh\nCI turns GREEN\n(xfail outcome = expected)"]
+    XF --> PUSH["4. Push:\npython scripts/push.py\nCI turns GREEN\n(xfail outcome = expected)"]
 
     PUSH --> TRACK["5. Track in BUG_REPORT.md\nStatus: OPEN\nPlatform + Python fields\nSLA Violations table"]
 
@@ -340,7 +340,7 @@ api-test-framework/
 ├── specs/
 │   └── home_test.PDF               # Source spec document (parsed by PDFParser)
 │
-├── src/                            # Framework internals — tests import from here
+├── apitf/                          # Framework internals — tests import from here
 │   ├── __init__.py
 │   ├── http_client.py              # HttpClient: HTTPS enforcement, retry, timing, logging
 │   ├── sla_exceptions.py           # SLA_FAILURE_EXCEPTIONS adapter (platform-agnostic tuple)
@@ -367,12 +367,14 @@ api-test-framework/
 │   ├── __init__.py
 │   ├── conftest.py                 # env_config fixture + --env CLI flag + bug reporter wiring
 │   ├── test_countries.py           # 21 test cases: TC-C-001 → TC-C-021
-│   └── test_weather.py             # 10 test cases: TC-W-001 → TC-W-010 (5 cities parametrized)
+│   ├── test_weather.py             # 10 test cases: TC-W-001 → TC-W-010 (5 cities parametrized)
+│   ├── test_security.py            # RFC 7231 compliance: methods, headers, content negotiation
+│   └── test_baseline.py            # Generic baselines: HTTPS, 2xx, 404, perf — auto for any env
 │
 ├── scripts/
 │   ├── advisor_review.py           # Opus advisor SDK stub (shows integration pattern)
-│   ├── push.sh                     # Enforces CI monitoring: push + gh run watch
-│   ├── setup_hooks.sh              # Installs git pre-push hook (run once after clone)
+│   ├── push.py                     # Enforces CI monitoring: push + gh run watch
+│   ├── setup_hooks.py              # Installs git pre-push hook (run once after clone)
 │   └── verify_bug_markers.py       # Pre-push guard: every open QUALITY_FAILURE bug needs xfail
 │
 ├── bugs/                           # Auto-generated on test failure (gitignored results)
@@ -397,9 +399,11 @@ api-test-framework/
 ├── DELIVERABLES.md                 # Spec requirements tracker (Opus-monitored)
 ├── BUG_REPORT.md                   # All filed bugs: format, status, curl reproduction
 ├── ENHANCEMENTS.md                 # Post-v1.0.0 roadmap
+├── INSTALL.md                      # Platform-specific install guide (macOS · Linux · Windows)
 ├── TEST_PLAN.md                    # Full test plan (38 planned cases; 31 implemented in v1.0.0)
 ├── pytest.ini                      # markers, addopts (-v --tb=short)
-└── requirements.txt                # Pinned dependencies
+├── pyproject.toml                  # Installable package (pip install -e ".[test]")
+└── requirements.txt                # Pinned dependencies (legacy fallback)
 ```
 
 ---
@@ -428,13 +432,13 @@ source .venv/bin/activate
 # .venv\Scripts\activate
 
 # 3. Install dependencies
-pip install -r requirements.txt
+pip install --upgrade pip && pip install -e ".[test]"
 
 # 4. Install the pre-push git hook (run once — enforces bug marker checks)
-bash scripts/setup_hooks.sh
+python scripts/setup_hooks.py
 
 # 5. Verify everything is wired up
-pytest --collect-only -q          # should show 31 test functions (~47 nodes after parametrization), no errors
+pytest --collect-only -q          # should show 88 tests, no import errors
 ```
 
 ### Verify Installation
@@ -471,7 +475,7 @@ The fastest path to testing a new API: drop a spec document in `specs/`, run thr
 │     (paste the cmd     │    SAMPLE_JSON=<paste live API response>     │
 │      spec-parser       │    CLASS_NAME=MyApiValidator                 │
 │      printed for you)  │    OUTPUT_MODULE=myapi_validator             │
-│                        │   ↓ writes src/validators/myapi_validator.py │
+│                        │   ↓ writes apitf/validators/myapi_validator.py │
 │                        │                                              │
 │  4. In Claude Code →   │  /test-generator                             │
 │     (paste the cmd     │    ENDPOINT_URL=https://api.example.com/v1  │
@@ -557,7 +561,7 @@ gh issue create --label bug \
     reason="Known API bug BUG-NNN / Issue #N: ...")
 
 # 6. Push — CI turns green
-bash scripts/push.sh
+python scripts/push.py
 ```
 
 ### Add a new API (3-step path)
@@ -573,7 +577,7 @@ newapi:
 
 # Step 2 — validator
 # (use /validator-generator skill in Claude Code, or write manually)
-# src/validators/newapi_validator.py — extend BaseValidator
+# apitf/validators/newapi_validator.py — extend BaseValidator
 
 # Step 3 — tests
 # (use /test-generator skill in Claude Code, or write manually)
@@ -703,14 +707,16 @@ After running `pytest -v --alluredir=allure-results && allure serve allure-resul
 
 ### Suites
 
-The report is segmented into two top-level suites driven by `allure.suite()` in each test file's `pytestmark`:
+The report is segmented into four top-level suites driven by `allure.suite()` in each test file's `pytestmark`:
 
 | Suite | Source | Test functions | Collected nodes |
 |-------|--------|---------------|-----------------|
 | `countries` | `tests/test_countries.py` | 21 (TC-C-001 → TC-C-021) | 21 |
-| `weather` | `tests/test_weather.py` | 10 (TC-W-001 → TC-W-010) | 26 (4 tests × 5 cities parametrized + 6 non-parametrized) |
+| `weather` | `tests/test_weather.py` | 10 (TC-W-001 → TC-W-010) | 26 (4 tests × 5 cities + 6 non-parametrized) |
+| `security` | `tests/test_security.py` | RFC 7231 compliance tests | parametrized by env + violation type |
+| `baseline` | `tests/test_baseline.py` | 4 generic checks per env (HTTPS, 2xx, 404, perf) | 2 envs × 4 checks = 8+ nodes |
 
-> **Why "47 items" in Allure?** `pytest --collect-only` reports 47 nodes — 4 weather tests (`test_forecast_positive_schema`, `test_forecast_timezone_present`, `test_forecast_temperature_range`, `test_forecast_performance`) are each parametrized across 5 cities, expanding to 20 nodes. The remaining 27 functions collect 1:1.
+> **Why "88 items"?** `pytest --collect-only` reports 88 nodes total — weather parametrizes 4 tests × 5 cities (20 nodes), security parametrizes by env and method/violation type, and baseline parametrizes 4 checks × 2 environments.
 
 Running with `--env countries` hides the weather suite (those tests are skipped). Running with no `--env` flag shows both.
 
@@ -867,12 +873,12 @@ Next steps:
   OUTPUT_MODULE=myapi_validator
 ```
 
-**What it generates** (`src/validators/myapi_validator.py`):
+**What it generates** (`apitf/validators/myapi_validator.py`):
 
 ```python
 from __future__ import annotations
 from typing import Any
-from src.validators.base_validator import BaseValidator, ValidationResult
+from apitf.validators.base_validator import BaseValidator, ValidationResult
 
 REQUIRED_FIELDS: tuple[str, ...] = ("id", "name", "price", "active")
 
@@ -929,8 +935,8 @@ from pathlib import Path
 from typing import Any
 import allure
 import pytest
-from src.http_client import HttpClient
-from src.validators.myapi_validator import MyApiValidator
+from apitf.http_client import HttpClient
+from apitf.validators.myapi_validator import MyApiValidator
 
 pytestmark = [pytest.mark.myapi, allure.suite("myapi")]
 
@@ -1029,7 +1035,7 @@ You:   /validator-generator
          CLASS_NAME=ChargeValidator
          OUTPUT_MODULE=charge_validator
 
-Claude: [writes src/validators/charge_validator.py]
+Claude: [writes apitf/validators/charge_validator.py]
         ChargeValidator validates: id (str), amount (int, > 0), currency (str, 3 chars), status (str)
 
 You:   /test-generator
@@ -1054,7 +1060,7 @@ allure serve allure-results
 
 ## Framework Components
 
-### HttpClient (`src/http_client.py`)
+### HttpClient (`apitf/http_client.py`)
 
 The only HTTP entry point for all tests. Never use `requests` directly in test files.
 
@@ -1067,7 +1073,7 @@ The only HTTP entry point for all tests. Never use `requests` directly in test f
 - **Logging**: DEBUG level logs every request and response; no credentials or PII are logged
 
 ```python
-from src.http_client import HttpClient
+from apitf.http_client import HttpClient
 
 # Basic usage
 with HttpClient("https://restcountries.com/v3.1") as client:
@@ -1104,7 +1110,7 @@ with pytest.raises(ValueError, match="Only HTTPS"):
 
 ---
 
-### BaseValidator (`src/validators/base_validator.py`)
+### BaseValidator (`apitf/validators/base_validator.py`)
 
 Abstract base class that enforces a consistent validation contract across all APIs.
 
@@ -1130,7 +1136,7 @@ if "name" not in item:
 
 ---
 
-### CountryValidator (`src/validators/country_validator.py`)
+### CountryValidator (`apitf/validators/country_validator.py`)
 
 Validates REST Countries API responses. Asserts the spec contract — not observed behavior.
 
@@ -1154,7 +1160,7 @@ assert result.passed, result.errors
 
 ---
 
-### WeatherValidator (`src/validators/weather_validator.py`)
+### WeatherValidator (`apitf/validators/weather_validator.py`)
 
 Validates Open-Meteo forecast API responses.
 
@@ -1169,9 +1175,9 @@ Validates Open-Meteo forecast API responses.
 
 ---
 
-### BugReporter (`src/reporters/bug_reporter.py`)
+### BugReporter (`apitf/reporters/bug_reporter.py`)
 
-A pytest plugin that auto-generates structured markdown bug reports whenever a test fails. Registered in `conftest.py` via `pytest_plugins = ["src.reporters.bug_reporter"]`.
+A pytest plugin that auto-generates structured markdown bug reports whenever a test fails. Registered in `conftest.py` via `pytest_plugins = ["apitf.reporters.bug_reporter"]`.
 
 **What it captures on every failure:**
 
@@ -1215,7 +1221,7 @@ response_time_ms = 31954.3
 
 ---
 
-### SLA Failure Adapter (`src/sla_exceptions.py`)
+### SLA Failure Adapter (`apitf/sla_exceptions.py`)
 
 Platform-agnostic exception tuple for SLA violation xfail markers. This is the single place to update if a new connection exception type is ever discovered.
 
@@ -1227,7 +1233,7 @@ Platform-agnostic exception tuple for SLA violation xfail markers. This is the s
 | Windows | `ConnectionResetError(10054)` → urllib3 retries succeed but accumulate 30s+ | `AssertionError` (slow 200 OK) |
 
 ```python
-from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
+from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 
 @pytest.mark.xfail(
     strict=False,
@@ -1239,7 +1245,7 @@ def test_forecast_performance(city, env_config): ...
 
 ---
 
-### SpecParser (`src/spec_parser/`)
+### SpecParser (`apitf/spec_parser/`)
 
 Parses spec documents into `EndpointSpec` dataclasses, enabling test generation from documentation.
 
@@ -1265,7 +1271,7 @@ Parses spec documents into `EndpointSpec` dataclasses, enabling test generation 
 | `MarkdownParser` | Extensibility stub | Markdown spec docs |
 
 **Adding a new parser:**
-1. Create `src/spec_parser/myformat_parser.py` extending `BaseSpecParser`
+1. Create `apitf/spec_parser/myformat_parser.py` extending `BaseSpecParser`
 2. Set `supported_extensions: tuple[str, ...] = (".myext",)`
 3. Implement `parse(source: Path) -> list[EndpointSpec]`
 
@@ -1314,20 +1320,42 @@ Parses spec documents into `EndpointSpec` dataclasses, enabling test generation 
 | TC-W-009 | `test_forecast_boundary_max_days` | Boundary | `forecast_days=16` → exactly 384 hourly entries |
 | TC-W-010 | `test_forecast_south_pole_boundary` | Boundary | `lat=-90, lon=0` → 200 with valid schema |
 
+### Security + RFC Compliance — Both Environments
+
+These tests run from `tests/test_security.py` and apply automatically to every environment that declares a `security` block in `environments.yaml`.
+
+| ID | Test | Technique | Both APIs |
+|----|------|-----------|-----------|
+| TC-S-001..004 | `test_method_not_allowed` | RFC 7231 §6.5.5 | POST/DELETE/PUT/PATCH → 405 (known bugs: BUG-006/009/011/012 for weather) |
+| TC-S-005 | `test_content_negotiation_406` | RFC 7231 §6.5.6 | `Accept: application/xml` → 406 (known bug: BUG-010 for weather) |
+| TC-S-006/007 | `test_security_headers_present` | OWASP Top 10 | HSTS + X-Content-Type-Options + X-Frame-Options (known bugs: BUG-007/008) |
+| TC-S-008+ | `test_injection_safe` | OWASP injection | SQL/XSS/null-byte payloads → no 5xx for any API with `injection_path` |
+
+### Baseline — Both Environments
+
+These tests run from `tests/test_baseline.py` and apply to every environment with a `base_url` — zero code changes when a new API is added.
+
+| ID | Test | Technique | Both APIs |
+|----|------|-----------|-----------|
+| TC-B-001 | `test_https_enforced` | Security | `HttpClient(http://)` raises `ValueError` — no network call needed |
+| TC-B-002 | `test_positive_baseline` | Positive | `probe_path` returns 2xx within max_response_time |
+| TC-B-003 | `test_invalid_path_404` | Negative | `/apitf_no_such_path_xyz_404` → exact 404 |
+| TC-B-004 | `test_performance_threshold` | Performance | `probe_path` response time < `max_response_time` (weather xfail: BUG-004) |
+
 ### Technique Coverage Matrix
 
-| Technique | Countries | Weather | Notes |
-|-----------|-----------|---------|-------|
-| Boundary Value Analysis | TC-C-005, TC-C-006, TC-C-019, TC-C-021 | TC-W-005, TC-W-006, TC-W-009, TC-W-010 | Min/max edges for count, population, temperature, coord, entries |
-| Equivalence Partitioning | TC-C-001, TC-C-002, TC-C-013, TC-C-014, TC-C-016, TC-C-018 | TC-W-001, TC-W-002 | Valid input groups yield correct responses |
-| Positive Testing | TC-C-008, TC-C-012 | TC-W-001 | Happy path — 200 + valid schema |
-| Negative Testing | TC-C-003, TC-C-004, TC-C-015, TC-C-019 | TC-W-003, TC-W-004 | Malformed/invalid inputs → correct 4xx |
-| State-Based | TC-C-007 | — | Data from call 1 drives assertion in call 2 |
-| Performance | TC-C-009, TC-C-010 | TC-W-007 | `response_time_ms` from YAML only — never hardcoded |
-| Reliability | — | — | `@pytest.mark.flaky(reruns=2)` on all live-API tests |
-| Security | TC-C-011, TC-C-017 | TC-W-008 | HTTPS enforcement, flag URL scheme |
-| Compatibility | All (pathlib.Path) | All | Cross-platform CI matrix: ubuntu/windows/mac |
-| Error Handling | TC-C-003, TC-C-015, TC-C-019 | TC-W-003, TC-W-004 | 4xx shape, JSON body, no 500 |
+| Technique | Countries | Weather | Security | Baseline |
+|-----------|-----------|---------|----------|----------|
+| Boundary Value Analysis | TC-C-005, TC-C-006, TC-C-019, TC-C-021 | TC-W-005, TC-W-006, TC-W-009, TC-W-010 | — | — |
+| Equivalence Partitioning | TC-C-001, TC-C-002, TC-C-013, TC-C-014, TC-C-016, TC-C-018 | TC-W-001, TC-W-002 | — | — |
+| Positive Testing | TC-C-008, TC-C-012 | TC-W-001 | — | TC-B-002 |
+| Negative Testing | TC-C-003, TC-C-004, TC-C-015, TC-C-019 | TC-W-003, TC-W-004 | TC-S-001..008 | TC-B-003 |
+| State-Based | TC-C-007 | — | — | — |
+| Performance | TC-C-009, TC-C-010 | TC-W-007 | — | TC-B-004 |
+| Reliability | All (flaky reruns=2) | All (flaky reruns=2) | All (flaky reruns=2) | All (flaky reruns=2) |
+| Security / RFC | TC-C-011, TC-C-017 | TC-W-008 | TC-S-001..008 | TC-B-001 |
+| Compatibility | All (pathlib.Path) | All | All | All |
+| Error Handling | TC-C-003, TC-C-015, TC-C-019 | TC-W-003, TC-W-004 | TC-S-001..008 | TC-B-003 |
 
 ---
 
@@ -1456,7 +1484,7 @@ flowchart TD
     PARSE --> YAML
     PARSE --> SKILLS
 
-    VAL["Skill: /validator-generator\n→ src/validators/myapi_validator.py\n\nTyped BaseValidator subclass:\n- REQUIRED_FIELDS constant\n- isinstance() type checks\n- range validation\n- collects ALL errors\n- never short-circuits"]
+    VAL["Skill: /validator-generator\n→ apitf/validators/myapi_validator.py\n\nTyped BaseValidator subclass:\n- REQUIRED_FIELDS constant\n- isinstance() type checks\n- range validation\n- collects ALL errors\n- never short-circuits"]
 
     TST["Skill: /test-generator\n→ tests/test_myapi.py\n\nComplete pytest file:\n- positive, negative, boundary, performance\n- env_config for all thresholds\n- HttpClient (never raw requests)\n- @pytest.mark.flaky(reruns=2)\n- allure.suite('myapi')"]
 
@@ -1500,8 +1528,8 @@ Or run the parser directly in Python:
 
 ```python
 from pathlib import Path
-from src.spec_parser.base_parser import SpecParserRegistry
-from src.spec_parser.pdf_parser import PDFParser
+from apitf.spec_parser.base_parser import SpecParserRegistry
+from apitf.spec_parser.pdf_parser import PDFParser
 
 registry = SpecParserRegistry()
 registry.register(PDFParser())
@@ -1548,7 +1576,7 @@ With a sample JSON response from the API, invoke the validator skill in a Claude
   OUTPUT_MODULE=myapi_validator
 ```
 
-This generates `src/validators/myapi_validator.py` — a typed `BaseValidator` subclass that:
+This generates `apitf/validators/myapi_validator.py` — a typed `BaseValidator` subclass that:
 - Defines `REQUIRED_FIELDS` as a module-level constant
 - Checks root type (list or dict) first
 - Runs `isinstance()` type checks on each field
@@ -1603,10 +1631,10 @@ The `--env myapi` flag works automatically because `conftest.py` discovers all k
 To add a new parser format (e.g., Postman collection JSON):
 
 ```python
-# src/spec_parser/postman_parser.py
+# apitf/spec_parser/postman_parser.py
 from __future__ import annotations
 from pathlib import Path
-from src.spec_parser.base_parser import BaseSpecParser, EndpointSpec
+from apitf.spec_parser.base_parser import BaseSpecParser, EndpointSpec
 
 class PostmanParser(BaseSpecParser):
     supported_extensions: tuple[str, ...] = (".postman_collection.json",)
@@ -1642,8 +1670,8 @@ cp ~/Downloads/myapi_openapi.yaml specs/
 #    Until then, use the PDF version of the spec or implement the stub
 python - <<'EOF'
 from pathlib import Path
-from src.spec_parser.base_parser import SpecParserRegistry
-from src.spec_parser.pdf_parser import PDFParser
+from apitf.spec_parser.base_parser import SpecParserRegistry
+from apitf.spec_parser.pdf_parser import PDFParser
 
 registry = SpecParserRegistry()
 registry.register(PDFParser())
@@ -1685,12 +1713,12 @@ The `--env jsonplaceholder` flag now works automatically. No code changes.
 
 ### Step 2 — Validator
 
-Create `src/validators/post_validator.py`:
+Create `apitf/validators/post_validator.py`:
 
 ```python
 from __future__ import annotations
 from typing import Any
-from src.validators.base_validator import BaseValidator, ValidationResult
+from apitf.validators.base_validator import BaseValidator, ValidationResult
 
 REQUIRED_FIELDS: tuple[str, ...] = ("id", "title", "body", "userId")
 
@@ -1728,8 +1756,8 @@ from typing import Any
 import allure
 import pytest
 
-from src.http_client import HttpClient
-from src.validators.post_validator import PostValidator
+from apitf.http_client import HttpClient
+from apitf.validators.post_validator import PostValidator
 
 pytestmark = [pytest.mark.jsonplaceholder, allure.suite("jsonplaceholder")]
 
@@ -1910,10 +1938,10 @@ allure serve allure-results/   # interactive report in browser
 
 ### Monitoring CI After Push
 
-Never push and move on. Use `scripts/push.sh` which calls `gh run watch` and blocks your terminal until CI completes:
+Never push and move on. Use `scripts/push.py` which calls `gh run watch` and blocks your terminal until CI completes:
 
 ```bash
-bash scripts/push.sh    # push + watch CI to completion
+python scripts/push.py    # push + watch CI to completion
 # DO NOT use: git push (bypasses CI monitoring)
 ```
 
@@ -1936,7 +1964,7 @@ The framework has 27 numbered rules (plus Rule 8a and Rule 23b) across 4 rules f
 | 13 | Opus review is mandatory before every commit | Process |
 | 16 | Tests encode the spec contract, not observed API behavior | Code review |
 | 17 | Always test against real endpoints — no mocking in test files | Code review |
-| 18 | CI monitoring after every push — do not move on | `scripts/push.sh` |
+| 18 | CI monitoring after every push — do not move on | `scripts/push.py` |
 | 19 | Every CI failure → GitHub issue before merge | Branch protection |
 | 21 | SLA violations are bugs — consistent timeout = file bug | Process |
 | 22 | SLA xfail markers use `SLA_FAILURE_EXCEPTIONS` adapter | `verify_bug_markers.py` |
@@ -1969,12 +1997,12 @@ The framework has 27 numbered rules (plus Rule 8a and Rule 23b) across 4 rules f
 |----------|------|-----|
 | `env_config` auto-discovers YAML keys | `--env` flag accepts any key from YAML dynamically | Adding a new environment block is the only change needed — no code edits in conftest.py |
 | `BaseValidator._fail()` accumulates errors | Never raises, never short-circuits; `_pass()` always called | Fail-fast hides multiple schema bugs behind the first one; accumulation surfaces all issues in one run |
-| `SLA_FAILURE_EXCEPTIONS` adapter in `src/sla_exceptions.py` | Single `tuple` of exception types for SLA xfail markers | Platform-agnostic: Linux gets `ConnectionError`, Windows gets `AssertionError`; new platforms need zero xfail changes; one place to update |
+| `SLA_FAILURE_EXCEPTIONS` adapter in `apitf/sla_exceptions.py` | Single `tuple` of exception types for SLA xfail markers | Platform-agnostic: Linux gets `ConnectionError`, Windows gets `AssertionError`; new platforms need zero xfail changes; one place to update |
 | `pytest-rerunfailures` over `pytest-retry` | `@pytest.mark.flaky(reruns=2, reruns_delay=2)` | `pytest-retry` silently ignores `reruns=` kwargs (uses `retries=` instead) — would have caused xfail logic to break in CI |
 | 6-job CI instead of 12 (3×4 cartesian) | Stage 1 Smoke + Stage 2 Platform + Stage 3 Versions | OS compat and Python version compat are independent dimensions; 6 jobs gives equal signal at half the cost |
 | `strict=False` xfail for SLA bugs | Test may pass if API is fast from a nearby runner | `strict=True` would require consistent failure; SLA bugs are probabilistic — `strict=False` tracks the bug without false alarms |
 | `xfail(strict=True)` for pure QUALITY_FAILURE | API returns wrong data per spec | Should always fail until the API is fixed; `xpass` immediately surfaces when the API is corrected |
-| `bash scripts/push.sh` enforces Rule 18 | Terminal blocks until CI completes | CI monitoring cannot be forgotten when it's baked into the push command |
+| `python scripts/push.py` enforces Rule 18 | Terminal blocks until CI completes | CI monitoring cannot be forgotten when it's baked into the push command |
 | Git pre-push hook runs `verify_bug_markers.py` | Push blocked if any open QUALITY_FAILURE bug lacks xfail | Makes it impossible to push code that silently fails CI; bugs are always tracked |
 | Mermaid diagrams in README | Architecture documented as code | Diagrams stay in sync with the repo; no external tools needed to read or update them |
 | `pathlib.Path` everywhere | All file I/O uses `pathlib.Path`, never `os.path` | Works identically on macOS, Linux, and Windows without conditional logic |
@@ -2024,7 +2052,7 @@ grep -n "BUG-NNN" tests/test_*.py
 gh issue close <N>
 
 # 5. Push
-bash scripts/push.sh
+python scripts/push.py
 ```
 
 ### `verify_bug_markers.py` exits 1 before push
@@ -2066,7 +2094,7 @@ Install the allure-pytest integration:
 ```bash
 pip install allure-pytest
 # or reinstall all requirements
-pip install -r requirements.txt
+pip install --upgrade pip && pip install -e ".[test]"
 ```
 
 ### Tests pass locally but fail on Windows CI (path issues)
@@ -2074,7 +2102,7 @@ pip install -r requirements.txt
 All file I/O uses `pathlib.Path`. If you see a Windows-specific path failure, check for any `os.path.join` or string concatenation with `/`:
 
 ```bash
-grep -rn "os.path\|'/' +" tests/ src/
+grep -rn "os.path\|'/' +" tests/ apitf/
 # Any match is a violation of Code Style Rule 6
 ```
 
@@ -2108,7 +2136,7 @@ python -c "import yaml; yaml.safe_load(open('config/environments.yaml'))"
 grep -ri "panw\|palo alto" . --include="*.py" --include="*.yaml" --include="*.md"
 
 # 5. Type check
-python -m mypy src/ tests/ --ignore-missing-imports
+python -m mypy apitf/ tests/ --ignore-missing-imports
 
 # 6. Bug marker verification (also enforced by pre-push hook)
 python scripts/verify_bug_markers.py

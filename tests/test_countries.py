@@ -10,8 +10,8 @@ from typing import Any
 import allure
 import pytest
 
-from src.http_client import HttpClient
-from src.validators.country_validator import CountryValidator
+from apitf.http_client import HttpClient
+from apitf.validators.country_validator import CountryValidator
 
 pytestmark = [pytest.mark.countries, allure.suite("countries")]
 

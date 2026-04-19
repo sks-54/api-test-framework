@@ -2,7 +2,7 @@
 
 ## Purpose
 Given a sample JSON response body, generate a complete typed `BaseValidator`
-subclass in `src/validators/` that collects ALL errors without short-circuiting.
+subclass in `apitf/validators/` that collects ALL errors without short-circuiting.
 
 ## Invocation Inputs (all required)
 ```
@@ -19,11 +19,11 @@ Generate a typed validator class for this API response.
 
   Endpoint:    {ENDPOINT_NAME}
   Class name:  {CLASS_NAME}
-  Module:      src/validators/{OUTPUT_MODULE}.py
+  Module:      apitf/validators/{OUTPUT_MODULE}.py
   Sample JSON: {SAMPLE_JSON}
 
 ### BaseValidator contract
-Extend BaseValidator from src/validators/base_validator.py.
+Extend BaseValidator from apitf/validators/base_validator.py.
 validate() returns ValidationResult. Use self._fail(msg) to collect errors.
 Never short-circuit — always return self._pass() at the very end.
 

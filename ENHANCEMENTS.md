@@ -8,8 +8,8 @@
 
 | ID | Enhancement | Effort | Notes |
 |----|-------------|--------|-------|
-| E-01 | `OpenAPIParser` — full implementation | Medium | Stub in `src/spec_parser/openapi_parser.py`. REST Countries exposes OpenAPI spec; Open-Meteo does too. Auto-generates `environments.yaml` entries from spec. |
-| E-02 | `MarkdownParser` — full implementation | Small | Stub in `src/spec_parser/markdown_parser.py`. Targets API docs in `.md` format (e.g., GitHub-hosted API docs). |
+| E-01 | `OpenAPIParser` — full implementation | Medium | Stub in `apitf/spec_parser/openapi_parser.py`. REST Countries exposes OpenAPI spec; Open-Meteo does too. Auto-generates `environments.yaml` entries from spec. |
+| E-02 | `MarkdownParser` — full implementation | Small | Stub in `apitf/spec_parser/markdown_parser.py`. Targets API docs in `.md` format (e.g., GitHub-hosted API docs). |
 | E-03 | Spec ingestion CLI (`scripts/ingest_spec.py`) | Small | Parses a dropped spec doc → updates `environments.yaml` + generates test skeleton. |
 
 ## v1.2 — Advisor Integration
@@ -47,6 +47,6 @@
 
 1. Pick an item from this list (or propose a new one via PR).
 2. Add an entry to `config/environments.yaml` if a new API is involved — **zero framework changes required**.
-3. Add validator in `src/validators/`, tests in `tests/`, and update `DELIVERABLES.md`.
+3. Add validator in `apitf/validators/`, tests in `tests/`, and update `DELIVERABLES.md`.
 4. Run `pytest -v` locally to confirm all existing tests still pass.
 5. Open a PR — the Opus advisor review gate applies.

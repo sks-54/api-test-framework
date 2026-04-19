@@ -5,10 +5,10 @@ PEP 8, these rules take precedence.
 
 ---
 
-## 1. All Validators in `src/validators/` — No Inline Schema Checks
+## 1. All Validators in `apitf/validators/` — No Inline Schema Checks
 
 Schema validation logic must never appear inside a test file. It belongs
-exclusively in a class extending `BaseValidator` in `src/validators/`.
+exclusively in a class extending `BaseValidator` in `apitf/validators/`.
 
 ## 2. Full Type Hints on Every Function Signature
 
@@ -40,7 +40,7 @@ Tests must never import or call `requests` directly.
 
 ```python
 # CORRECT — in test file
-from src.http_client import HttpClient
+from apitf.http_client import HttpClient
 
 # FORBIDDEN — in test file
 import requests

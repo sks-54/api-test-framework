@@ -38,7 +38,7 @@ find and report bugs, not to make tests pass.
 6. Act on Opus's direction before starting any new implementation
 
 ### Before and after every push (Rule 8 + Rule 18):
-Use `bash scripts/push.sh` — not `git push`. It runs the pre-push hook (xfail check)
+Use `python scripts/push.py` — not `git push`. It runs the pre-push hook (xfail check)
 and then watches CI to completion. Both are enforced, not optional.
 
 ### Acknowledged changes must be committed immediately (Rule 25):

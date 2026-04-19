@@ -48,11 +48,11 @@ jobs:
         uses: actions/cache@v5.0.5
         with:
           path: ~/.cache/pip
-          key: pip-ubuntu-3.11-${{ hashFiles('requirements.txt') }}
+          key: pip-ubuntu-3.11-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
           restore-keys: pip-ubuntu-3.11-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install --upgrade pip && pip install -e ".[test]"
 
       - name: Collect tests (import + discovery check)
         shell: bash
@@ -123,11 +123,11 @@ jobs:
           path: |
             ~/.cache/pip
             ~/AppData/Local/pip/Cache
-          key: pip-${{ runner.os }}-3.11-${{ hashFiles('requirements.txt') }}
+          key: pip-${{ runner.os }}-3.11-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
           restore-keys: pip-${{ runner.os }}-3.11-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install --upgrade pip && pip install -e ".[test]"
 
       - name: Run full test suite
         shell: bash
@@ -167,11 +167,11 @@ jobs:
         uses: actions/cache@v5.0.5
         with:
           path: ~/.cache/pip
-          key: pip-ubuntu-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          key: pip-ubuntu-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
           restore-keys: pip-ubuntu-${{ matrix.python-version }}-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install --upgrade pip && pip install -e ".[test]"
 
       - name: Run full test suite
         shell: bash
