@@ -1,119 +1,84 @@
-"""Shared HTTP client wrapper around requests.Session."""
+"""Shared HTTP client with retry, timing, HTTPS enforcement, and logging."""
 
 from __future__ import annotations
 
+import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+logger = logging.getLogger(__name__)
+
+_USER_AGENT = "api-test-framework/1.0"
+_DEFAULT_TIMEOUT = 30
+_RETRY_TOTAL = 3
+_RETRY_BACKOFF = 0.5
+_RETRY_STATUS_CODES = (500, 502, 503, 504)
+
 
 @dataclass
 class HttpResponse:
-    """Encapsulates a parsed HTTP response."""
-
     status_code: int
     json_body: Any
+    headers: dict[str, str]
     response_time_ms: float
     url: str
+    raw_text: str = field(repr=False)
 
 
 class HttpClient:
-    """Thread-safe HTTP client with retry logic and response-time tracking."""
-
-    _USER_AGENT = "api-test-framework/1.0"
-    _MAX_RETRIES = 3
-    _BACKOFF_FACTOR = 1  # seconds; urllib3 uses exponential: {backoff} * (2 ** (retry - 1))
-    _RETRY_STATUS_CODES = frozenset({500, 502, 503, 504})
-
-    def __init__(self, base_url: str, max_response_time: float) -> None:
-        """
-        Parameters
-        ----------
-        base_url:
-            Root URL for all requests.  Must start with ``https://``.
-        max_response_time:
-            Soft SLA threshold in milliseconds.  Stored for use by callers /
-            validators; not enforced internally to keep this layer generic.
-        """
+    def __init__(self, base_url: str, timeout: int = _DEFAULT_TIMEOUT) -> None:
         if not base_url.startswith("https://"):
-            raise ValueError(
-                f"base_url must use HTTPS. Got: {base_url!r}"
-            )
+            raise ValueError(f"Only HTTPS base URLs are permitted, got: {base_url!r}")
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout
+        self._session = self._build_session()
 
-        self.base_url = base_url
-        self.max_response_time = max_response_time
-
-        retry_policy = Retry(
-            total=self._MAX_RETRIES,
-            backoff_factor=self._BACKOFF_FACTOR,
-            status_forcelist=self._RETRY_STATUS_CODES,
-            allowed_methods=frozenset({"GET"}),
-            raise_on_status=False,  # we call raise_for_status() ourselves
+    def _build_session(self) -> requests.Session:
+        session = requests.Session()
+        session.headers["User-Agent"] = _USER_AGENT
+        retry = Retry(
+            total=_RETRY_TOTAL,
+            backoff_factor=_RETRY_BACKOFF,
+            status_forcelist=_RETRY_STATUS_CODES,
+            allowed_methods=["GET", "POST"],
         )
-        adapter = HTTPAdapter(max_retries=retry_policy)
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("https://", adapter)
+        return session
 
-        self._session = requests.Session()
-        self._session.mount("https://", adapter)
-        self._session.headers.update({"User-Agent": self._USER_AGENT})
+    def get(self, path: str, params: dict[str, Any] | None = None) -> HttpResponse:
+        url = f"{self._base_url}{path}"
+        logger.debug("GET %s params=%r", url, params)
+        start = time.monotonic()
+        resp = self._session.get(url, params=params, timeout=self._timeout)
+        elapsed_ms = (time.monotonic() - start) * 1000
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def get(self, path: str, params: dict | None = None) -> HttpResponse:
-        """Perform a GET request and return an :class:`HttpResponse`.
-
-        Parameters
-        ----------
-        path:
-            Path relative to *base_url* (leading/trailing slashes are handled
-            gracefully via :func:`urllib.parse.urljoin` semantics).
-        params:
-            Optional mapping of query-string parameters.
-
-        Raises
-        ------
-        requests.HTTPError
-            For any 4xx or 5xx response after all retry attempts are exhausted.
-        """
-        url = self._build_url(path)
-
-        start_ns = time.monotonic_ns()
-        response = self._session.get(url, params=params)
-        elapsed_ms = (time.monotonic_ns() - start_ns) / 1_000_000
-
-        response.raise_for_status()
-
+        json_body: Any = None
         try:
-            body: Any = response.json()
+            json_body = resp.json()
         except ValueError:
-            body = None
+            logger.warning("Response from %s is not JSON (status=%d)", url, resp.status_code)
 
+        logger.debug("GET %s → %d in %.1fms", url, resp.status_code, elapsed_ms)
         return HttpResponse(
-            status_code=response.status_code,
-            json_body=body,
+            status_code=resp.status_code,
+            json_body=json_body,
+            headers=dict(resp.headers),
             response_time_ms=elapsed_ms,
-            url=response.url,
+            url=resp.url,
+            raw_text=resp.text,
         )
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+    def close(self) -> None:
+        self._session.close()
 
-    def _build_url(self, path: str) -> str:
-        """Join *base_url* and *path* in a slash-safe manner.
+    def __enter__(self) -> "HttpClient":
+        return self
 
-        ``urljoin`` requires the base to have a trailing slash so that the
-        last path segment is treated as a directory, not a file.  We normalise
-        both sides to avoid double-slash or dropped-segment issues.
-        """
-        base = self.base_url.rstrip("/") + "/"
-        # Strip a single leading slash from path so urljoin doesn't treat it
-        # as an absolute path and discard the base's path component.
-        relative = path.lstrip("/")
-        return urljoin(base, relative)
+    def __exit__(self, *_: Any) -> None:
+        self.close()
