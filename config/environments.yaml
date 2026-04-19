@@ -11,6 +11,7 @@ countries:
     probe_path: /name/germany
     probe_params: {}
     injection_path: /name/{payload}
+    injection_expected_status: 404
     known_violations:
       - type: security_headers
         bug_id: BUG-007
@@ -28,6 +29,8 @@ weather:
       latitude: 52.52
       longitude: 13.41
       hourly: temperature_2m
+    injection_path: /forecast?latitude={payload}&longitude=13.41&hourly=temperature_2m
+    injection_expected_status: 400
     known_violations:
       - type: method
         method: POST
@@ -39,6 +42,16 @@ weather:
         bug_id: BUG-009
         issue: https://github.com/sks-54/api-test-framework/issues/18
         reason: "DELETE /forecast returns 404 instead of 405 (RFC 7231 §6.5.5 violation)"
+      - type: method
+        method: PUT
+        bug_id: BUG-011
+        issue: https://github.com/sks-54/api-test-framework/issues/21
+        reason: "PUT /forecast returns 404 instead of 405 (RFC 7231 §6.5.5 violation)"
+      - type: method
+        method: PATCH
+        bug_id: BUG-012
+        issue: https://github.com/sks-54/api-test-framework/issues/22
+        reason: "PATCH /forecast returns 404 instead of 405 (RFC 7231 §6.5.5 violation)"
       - type: content_negotiation
         bug_id: BUG-010
         issue: https://github.com/sks-54/api-test-framework/issues/19

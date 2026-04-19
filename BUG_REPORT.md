@@ -357,6 +357,58 @@ curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/xml" "https://api
 
 ---
 
+### BUG-011
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-011 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/21 |
+| **Test** | test_method_not_allowed[weather-PUT] |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level bug) |
+| **Python** | 3.11 |
+| **Title** | `PUT /forecast` returns 404 instead of 405 Method Not Allowed |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 405, actual HTTP 404
+curl -s -o /dev/null -w "%{http_code}" -X PUT "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m"
+```
+
+**Expected:** HTTP 405 — RFC 7231 §6.5.5
+
+**Actual:** HTTP 404 — server treats the route as missing rather than the method as unsupported
+
+---
+
+### BUG-012
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-012 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/22 |
+| **Test** | test_method_not_allowed[weather-PATCH] |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level bug) |
+| **Python** | 3.11 |
+| **Title** | `PATCH /forecast` returns 404 instead of 405 Method Not Allowed |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 405, actual HTTP 404
+curl -s -o /dev/null -w "%{http_code}" -X PATCH "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m"
+```
+
+**Expected:** HTTP 405 — RFC 7231 §6.5.5
+
+**Actual:** HTTP 404 — server treats the route as missing rather than the method as unsupported
+
+---
+
 ## Resolved Bugs
 
 _None yet._
