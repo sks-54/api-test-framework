@@ -71,8 +71,8 @@ When raising a new PR or after any PR merges:
 - `config/environments.yaml` — single source of truth for all thresholds and base URLs
 - `CLAUDE_LOG.md` — phase status, known bugs, process violations, Opus review log
 - `DELIVERABLES.md` — spec requirements tracker (update checkmarks as items complete)
-- `.claude/rules/framework-rules.md` — 26 rules governing this framework
-- `.github/workflows/ci.yml` — push trigger ignores main and doc-only changes; 3-stage pipeline (smoke → platform → matrix)
+- `.claude/rules/framework-rules.md` — 27 rules governing this framework
+- `.github/workflows/ci.yml` — push trigger ignores main and doc-only changes; 3-stage pipeline (smoke → platform → versions), 6 jobs total (Rule 26)
 
 ## What "done" means for a test
 A test is done when it:

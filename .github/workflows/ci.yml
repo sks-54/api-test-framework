@@ -25,8 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Stage 1: Smoke (ubuntu-latest + Python 3.11 only) ────────────────────────
-  # Cheapest possible signal. Catches import errors and broken fixtures fast.
+  # ── Stage 1: Smoke (ubuntu / 3.11) ───────────────────────────────────────────
+  # Cheapest fast-fail: import errors, broken fixtures, both API environments.
+  # ubuntu is the cheapest runner; 3.11 is the stable reference version.
   smoke:
     name: Smoke (ubuntu / 3.11)
     runs-on: ubuntu-latest
@@ -49,7 +50,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Collect tests (discovery + import check)
+      - name: Collect tests (import + discovery check)
         shell: bash
         run: |
           set -o pipefail
@@ -86,14 +87,16 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: allure-results-ubuntu-311
+          name: allure-results-smoke
           path: allure-results/
           retention-days: 7
 
-  # ── Stage 2: Cross-platform check (one windows + one mac, 3.11 only) ─────────
-  # Validates platform compatibility before burning the full matrix budget.
+  # ── Stage 2: Platform check (windows + mac, 3.11 only) ───────────────────────
+  # Validates OS-specific behaviour: path separators, encoding, tempfile locations.
+  # 3.11 is sufficient — OS bugs don't change with Python minor version.
+  # Only runs if smoke passes (fail-fast before spending platform runner budget).
   platform:
-    name: Platform check (${{ matrix.os }} / 3.11)
+    name: Platform (${{ matrix.os }} / 3.11)
     needs: smoke
     if: success()
     runs-on: ${{ matrix.os }}
@@ -131,19 +134,22 @@ jobs:
           tail -20 test-output.log
           exit "${code:-0}"
 
-  # ── Stage 3: Full version matrix (all OS × Python 3.9–3.12) ─────────────────
-  # Runs only after both smoke AND platform checks pass.
-  # Excludes combos already covered by smoke (ubuntu/3.11) and platform (*/3.11).
-  matrix:
-    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+  # ── Stage 3: Version boundaries (ubuntu, 3.9 + 3.12 only) ───────────────────
+  # Validates Python version compatibility at the support boundary.
+  # Rationale: OS compat is already proven by stages 1+2. Python version bugs
+  # (deprecated syntax, stdlib changes, type-hint behaviour) are OS-independent.
+  # Testing 3.9 (oldest supported) and 3.12 (newest) covers the full range —
+  # intermediate versions (3.10) add no meaningful signal and double the cost.
+  # ubuntu is used (cheapest runner) since OS-specific behaviour is not the concern here.
+  versions:
+    name: Versions (ubuntu / ${{ matrix.python-version }})
     needs: platform
     if: success()
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.12"]
+        python-version: ["3.9", "3.12"]
 
     steps:
       - uses: actions/checkout@v6.0.2
@@ -156,11 +162,9 @@ jobs:
       - name: Cache pip
         uses: actions/cache@v5.0.5
         with:
-          path: |
-            ~/.cache/pip
-            ~/AppData/Local/pip/Cache
-          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: pip-${{ runner.os }}-${{ matrix.python-version }}-
+          path: ~/.cache/pip
+          key: pip-ubuntu-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-ubuntu-${{ matrix.python-version }}-
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -174,10 +178,12 @@ jobs:
           tail -20 test-output.log
           exit "${code:-0}"
 
-  # ── Stage 4: Quality gate — blocks merge if any stage failed ─────────────────
+  # ── Stage 4: Quality gate ─────────────────────────────────────────────────────
+  # Blocks merge if any upstream stage failed.
+  # Total runner-jobs per push: 1 (smoke) + 2 (platform) + 2 (versions) + 1 (gate) = 6
   gate:
     name: Quality Gate
-    needs: [smoke, platform, matrix]
+    needs: [smoke, platform, versions]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -186,10 +192,10 @@ jobs:
         run: |
           smoke="${{ needs.smoke.result }}"
           platform="${{ needs.platform.result }}"
-          matrix="${{ needs.matrix.result }}"
-          echo "Smoke: $smoke | Platform: $platform | Matrix: $matrix"
-          if [[ "$smoke" != "success" || "$platform" != "success" || "$matrix" != "success" ]]; then
+          versions="${{ needs.versions.result }}"
+          echo "Smoke: $smoke | Platform: $platform | Versions: $versions"
+          if [[ "$smoke" != "success" || "$platform" != "success" || "$versions" != "success" ]]; then
             echo "❌ Quality gate FAILED"
             exit 1
           fi
-          echo "✅ Quality gate PASSED"
+          echo "✅ Quality gate PASSED — 6 jobs, 3 stages"

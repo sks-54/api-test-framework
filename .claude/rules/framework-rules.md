@@ -382,7 +382,40 @@ This applies to:
 
 No partial acknowledgements. If it wasn't committed, it didn't happen.
 
-## Rule 26 — Keep GitHub Actions on the Current Node.js Runtime
+## Rule 26 — CI Matrix Design: Test Dimensions Independently, Not as a Cartesian Product
+
+OS compatibility and Python version compatibility are independent dimensions. Testing every
+OS × every Python version produces a cartesian product that grows quadratically and provides
+almost no additional signal beyond testing each dimension separately.
+
+**Why they are independent:**
+- OS bugs (path separators, encoding, tempfile locations) do not change with Python minor version
+- Python version bugs (deprecated syntax, stdlib removals, type-hint changes) do not change by OS
+
+**The correct structure (6 jobs):**
+```
+Stage 1 — Smoke     : ubuntu / 3.11      → fast-fail on import errors; proves basic correctness
+Stage 2 — Platform  : windows/3.11
+                      mac/3.11           → proves OS compat on one stable Python version
+Stage 3 — Versions  : ubuntu / 3.9
+                      ubuntu / 3.12      → proves version-boundary compat on cheapest runner
+Stage 4 — Gate      : always()           → blocks merge if any stage failed
+```
+
+**Why only 3.9 and 3.12 in the version stage:**
+If code works on the oldest (3.9) and newest (3.12) supported Python, it works on every
+intermediate version. Intermediate versions (3.10, 3.11) add no signal and double the cost.
+3.11 is already covered by smoke and platform.
+
+**Forbidden patterns:**
+- Full cartesian product (3 OS × 4 Python = 12 jobs) — the default that GitHub suggests
+- Running the version sweep on windows/mac (OS compat is already proven; just wastes budget)
+- Adding 3.10 to the version matrix (intermediate version, no additional signal)
+
+**When to revisit:** If a new OS-specific Python bug is found (e.g., a Windows-only issue on
+3.12), add a targeted `exclude:` or a specific extra job — do not expand back to full cartesian.
+
+## Rule 27 — Keep GitHub Actions on the Current Node.js Runtime
 
 GitHub Actions deprecates Node.js runtimes on a published schedule. Running stale action
 versions produces `##[warning]Node.js XX actions are deprecated` in every CI log and will
