@@ -80,7 +80,7 @@
 
 ## Submission
 
-- [ ] GitHub repo: `sks-54/panw-qa-takehome` (new, public)
+- [ ] GitHub repo: `sks-54/api-test-framework` (new, public)
 - [ ] Phased PRs (one per phase, each Opus-reviewed before merge)
 - [ ] `README.md` with setup, run instructions, 5 Mermaid architecture diagrams, design decisions
 - [ ] Tagged `v1.0.0` once all items above are checked
