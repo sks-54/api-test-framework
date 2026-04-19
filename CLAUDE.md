@@ -63,9 +63,22 @@ When raising a new PR or after any PR merges:
 1. Run `gh pr list` — identify all open PRs
 2. For each open PR, check `gh pr view <N> --json mergeable` — if `CONFLICTING`, resolve immediately
 3. Fix conflicts via `git rebase origin/main` (rebase over merge — keeps linear history)
-4. **Do NOT trigger CI on a conflicting PR** — push only after conflicts are resolved
-5. For content conflicts: take the version that preserves the spec contract (our testing-compatible http_client, our stricter assertions, our rules)
-6. Only escalate to human if the conflict involves a fundamental architecture change that cannot be resolved without design input
+4. **Do NOT push to a conflicting branch** — resolve conflicts locally first, then push the clean result
+5. After every rebase, run `python scripts/verify_bug_markers.py` before pushing — rebase can silently drop xfail markers (Rule 24)
+6. For content conflicts: take the version that preserves the spec contract (our testing-compatible http_client, our stricter assertions, our rules)
+7. Only escalate to human if the conflict involves a fundamental architecture change that cannot be resolved without design input
+
+**What happens to CI when you push a rebase:**
+- Any in-progress CI run on that branch is automatically cancelled (concurrency group is branch-scoped)
+- A single fresh run starts on the post-rebase commit
+- This is correct — you never want CI results from a pre-rebase state to block or mislead
+
+**When CI fails on a PR and cannot merge:**
+1. Categorize the failure (Rule 10) — ENV_FAILURE, QUALITY_FAILURE, or STRUCTURAL_FAILURE
+2. QUALITY_FAILURE: file GitHub issue → xfail → push → CI turns green → PR can merge
+3. STRUCTURAL_FAILURE: fix the code → push → new CI run starts, old one cancelled
+4. SLA_VIOLATION (consistent timeout all reruns): file bug → xfail with `SLA_FAILURE_EXCEPTIONS` → push → CI green
+5. Never merge a PR with an unresolved non-ENV failure (Rule 19)
 
 ## Key files
 - `config/environments.yaml` — single source of truth for all thresholds and base URLs
