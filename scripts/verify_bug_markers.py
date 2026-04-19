@@ -20,16 +20,19 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).parent.parent
 BUG_REPORT = ROOT / "BUG_REPORT.md"
 TESTS_DIR = ROOT / "tests"
+ENV_CONFIG = ROOT / "config" / "environments.yaml"
 
 _KNOWN_STATUSES = {"OPEN", "RESOLVED", "WONT_FIX"}
 _KNOWN_CATEGORIES = {"QUALITY_FAILURE", "SLA_VIOLATION"}
 _BUG_BLOCK = re.compile(r"###\s+(BUG-\d+).*?(?=###\s+BUG-|\Z)", re.DOTALL)
 _STATUS = re.compile(r"\|\s*\*\*Status\*\*\s*\|\s*([^\|\n]+)")
 _CATEGORY = re.compile(r"\|\s*\*\*Category\*\*\s*\|\s*([^\|\n]+)")
-_TEST_ID = re.compile(r"\|\s*\*\*Test\*\*\s*\|\s*(TC-[A-Z]-\d+)")
+_TEST_ID = re.compile(r"\|\s*\*\*Test\*\*\s*\|\s*([^\|\n]+)")
 
 
 def load_bug_registry() -> dict[str, dict[str, str]]:
@@ -45,7 +48,7 @@ def load_bug_registry() -> dict[str, dict[str, str]]:
         status_m = _STATUS.search(block)
         category_m = _CATEGORY.search(block)
         test_m = _TEST_ID.search(block)
-        if not (bug_id_m and status_m and test_m):
+        if not (bug_id_m and status_m):
             continue
         raw_status = status_m.group(1).strip().upper()
         if raw_status not in _KNOWN_STATUSES:
@@ -55,13 +58,60 @@ def load_bug_registry() -> dict[str, dict[str, str]]:
             )
             sys.exit(1)
         category = category_m.group(1).strip().upper() if category_m else "QUALITY_FAILURE"
+        test_id = test_m.group(1).strip() if test_m else "(unknown)"
         registry[bug_id_m.group(1).lower()] = {
             "status": raw_status,
             "category": category,
-            "test_id": test_m.group(1),
+            "test_id": test_id,
             "bug_id": bug_id_m.group(1),
         }
     return registry
+
+
+_KNOWN_VIOLATION_TYPES: frozenset[str] = frozenset({"method", "security_headers", "content_negotiation"})
+_KNOWN_VIOLATION_METHODS: frozenset[str] = frozenset({"POST", "DELETE"})
+
+
+def load_yaml_covered_bugs() -> set[str]:
+    """
+    Return a set of bug_id_lower values covered by environments.yaml known_violations.
+
+    Bugs declared in the YAML security block are covered by config-driven xfail marks
+    applied via pytest.param() at collection time — no function-level decorator needed.
+
+    Validates that each entry's type/method will actually produce an xfail at collection
+    time. A typo in `type:` or an out-of-set method would silently suppress the xfail
+    while passing verification — the guard below makes that a hard exit instead.
+    """
+    covered: set[str] = set()
+    if not ENV_CONFIG.exists():
+        return covered
+    data = yaml.safe_load(ENV_CONFIG.read_text(encoding="utf-8"))
+    for env_name, env_cfg in data.items():
+        if env_name == "version" or not isinstance(env_cfg, dict):
+            continue
+        for violation in env_cfg.get("security", {}).get("known_violations", []):
+            bug_id = violation.get("bug_id", "")
+            vtype = violation.get("type", "")
+            if not bug_id:
+                continue
+            if vtype not in _KNOWN_VIOLATION_TYPES:
+                print(
+                    f"[ERROR] {env_name} known_violation {bug_id!r}: unknown type {vtype!r}. "
+                    f"Allowed: {sorted(_KNOWN_VIOLATION_TYPES)}"
+                )
+                sys.exit(1)
+            if vtype == "method":
+                method = violation.get("method", "")
+                if method not in _KNOWN_VIOLATION_METHODS:
+                    print(
+                        f"[ERROR] {env_name} known_violation {bug_id!r}: method {method!r} "
+                        f"is not iterated by _method_params(). "
+                        f"Allowed: {sorted(_KNOWN_VIOLATION_METHODS)}"
+                    )
+                    sys.exit(1)
+            covered.add(bug_id.lower())
+    return covered
 
 
 def _is_xfail_call(node: ast.expr) -> bool:
@@ -206,12 +256,20 @@ def main() -> int:
         return 0
 
     xfail_index = load_xfail_index()
+    yaml_covered = load_yaml_covered_bugs()
     failures: list[str] = []
 
     for info in open_quality_bugs:
         bug_id = info["bug_id"]
         test_id = info["test_id"]
         key = bug_id.lower()
+
+        if key in yaml_covered:
+            print(
+                f"  [OK] {bug_id} ({test_id}): covered by environments.yaml known_violations "
+                "(xfail applied via pytest.param at collection time)"
+            )
+            continue
 
         if key not in xfail_index:
             failures.append(

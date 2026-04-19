@@ -1,22 +1,30 @@
-"""Cross-environment security and RFC compliance tests.
+"""Generic security and RFC compliance tests — config-driven, zero code changes per new API.
 
-Tests HTTP method enforcement (405), content negotiation (406), RFC 7231
-method compliance, security response headers, and input safety (injection,
-path traversal). These tests are cross-environment and only run without
---env flag (both APIs required).
+All test parametrization is driven by the `security` block in each environment's
+config/environments.yaml entry. To add security coverage for a new API:
+
+  1. Add the API to config/environments.yaml (standard 3-step extension)
+  2. Add a `security` block with `probe_path`, `probe_params`, and optionally
+     `injection_path` and `known_violations`
+  3. These tests run automatically — no code changes needed here
+
+Known violations (bugs) are declared in YAML as `known_violations` entries and
+automatically translated to xfail markers at collection time, so CI stays green
+while the bugs are tracked.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import allure
 import pytest
+import yaml
 
 from src.http_client import HttpClient
-from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 
 pytestmark = [pytest.mark.security, allure.suite("security")]
 
@@ -27,6 +35,87 @@ _SECURITY_HEADERS = (
     "x-content-type-options",
     "x-frame-options",
 )
+
+_INJECTION_PAYLOADS = [
+    ("sql_injection", "germany' OR 1=1--"),
+    ("path_traversal", "../../etc/passwd"),
+]
+
+# ---------------------------------------------------------------------------
+# Config loading — all parametrization data comes from environments.yaml
+# ---------------------------------------------------------------------------
+
+_ALL_ENVS: dict[str, Any] = yaml.safe_load(
+    (Path(__file__).parent.parent / "config" / "environments.yaml").read_text(encoding="utf-8")
+)
+_SECURITY_ENVS: list[tuple[str, dict[str, Any]]] = [
+    (name, cfg)
+    for name, cfg in _ALL_ENVS.items()
+    if name != "version" and "security" in cfg
+]
+
+
+def _violation_index(env_cfg: dict[str, Any], vtype: str, **kw: str) -> dict[str, Any] | None:
+    """Return the first known_violation matching type + optional extra keys."""
+    for v in env_cfg["security"].get("known_violations", []):
+        if v.get("type") == vtype and all(v.get(k) == val for k, val in kw.items()):
+            return v
+    return None
+
+
+def _xfail_mark(violation: dict[str, Any]) -> pytest.MarkDecorator:
+    return pytest.mark.xfail(
+        strict=True,
+        raises=AssertionError,
+        reason=(
+            f"Known {violation['bug_id']} / {violation['issue']}: {violation['reason']}. "
+            f"xpass if the API fixes this — remove YAML known_violations entry then."
+        ),
+    )
+
+
+def _method_params() -> list[Any]:
+    params: list[Any] = []
+    for env_name, env_cfg in _SECURITY_ENVS:
+        for method in ("POST", "DELETE"):
+            marks: list[Any] = []
+            v = _violation_index(env_cfg, "method", method=method)
+            if v:
+                marks.append(_xfail_mark(v))
+            params.append(pytest.param(env_name, method, id=f"{env_name}-{method}", marks=marks))
+    return params
+
+
+def _header_params() -> list[Any]:
+    params: list[Any] = []
+    for env_name, env_cfg in _SECURITY_ENVS:
+        marks: list[Any] = []
+        v = _violation_index(env_cfg, "security_headers")
+        if v:
+            marks.append(_xfail_mark(v))
+        params.append(pytest.param(env_name, id=env_name, marks=marks))
+    return params
+
+
+def _content_neg_params() -> list[Any]:
+    params: list[Any] = []
+    for env_name, env_cfg in _SECURITY_ENVS:
+        marks: list[Any] = []
+        v = _violation_index(env_cfg, "content_negotiation")
+        if v:
+            marks.append(_xfail_mark(v))
+        params.append(pytest.param(env_name, id=env_name, marks=marks))
+    return params
+
+
+def _injection_params() -> list[Any]:
+    params: list[Any] = []
+    for env_name, env_cfg in _SECURITY_ENVS:
+        if "injection_path" not in env_cfg["security"]:
+            continue
+        for label, payload in _INJECTION_PAYLOADS:
+            params.append(pytest.param(env_name, label, payload, id=f"{env_name}-{label}"))
+    return params
 
 
 def _attach(resp: Any, name: str = "Response") -> None:
@@ -43,36 +132,26 @@ def _attach(resp: Any, name: str = "Response") -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-S-001  RFC 7231 — POST /name/germany must return 405 Method Not Allowed
+# TC-S-001 / TC-S-002  RFC 7231 — unsupported HTTP methods return 405
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-S-001: POST /name/germany returns 405 Method Not Allowed")
+@allure.title("TC-S: {env_name} {method} probe_path → 405 Method Not Allowed")
+@pytest.mark.parametrize("env_name,method", _method_params())
 @pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_countries_post_method_rejected(env_config: dict[str, Any]) -> None:
-    base_url = env_config["countries"]["base_url"]
+def test_method_not_allowed(env_name: str, method: str, env_config: dict[str, Any]) -> None:
+    if env_name not in env_config:
+        pytest.skip(
+            f"--env flag excludes {env_name!r}. Run `pytest` (no --env) to include all security tests."
+        )
+    cfg = env_config[env_name]
+    sec = cfg["security"]
+    base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
-        resp = client.request("POST", "/name/germany")
-    _attach(resp, name="POST /name/germany")
+        resp = client.request(method, sec["probe_path"], params=sec.get("probe_params") or None)
+    _attach(resp, name=f"{method} {sec['probe_path']}")
     assert resp.status_code == 405, (
-        f"Expected 405 Method Not Allowed for POST /name/germany, got {resp.status_code}. "
-        f"RFC 7231 §6.5.5: server must return 405 for unsupported methods."
-    )
-
-
-# ---------------------------------------------------------------------------
-# TC-S-002  RFC 7231 — DELETE /name/germany must return 405 Method Not Allowed
-# ---------------------------------------------------------------------------
-
-@allure.title("TC-S-002: DELETE /name/germany returns 405 Method Not Allowed")
-@pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_countries_delete_method_rejected(env_config: dict[str, Any]) -> None:
-    base_url = env_config["countries"]["base_url"]
-    with HttpClient(base_url) as client:
-        resp = client.request("DELETE", "/name/germany")
-    _attach(resp, name="DELETE /name/germany")
-    assert resp.status_code == 405, (
-        f"Expected 405 Method Not Allowed for DELETE /name/germany, got {resp.status_code}. "
-        f"RFC 7231 §6.5.5: server must return 405 for unsupported methods."
+        f"Expected 405 Method Not Allowed for {method} {base_url}{sec['probe_path']}, "
+        f"got {resp.status_code}. RFC 7231 §6.5.5: server must return 405 for unsupported methods."
     )
 
 
@@ -80,158 +159,81 @@ def test_countries_delete_method_rejected(env_config: dict[str, Any]) -> None:
 # TC-S-003  RFC 7231 — Accept: application/xml returns 406 Not Acceptable
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-S-003: Accept: application/xml returns 406 Not Acceptable")
+@allure.title("TC-S: {env_name} Accept: application/xml → 406 Not Acceptable")
+@pytest.mark.parametrize("env_name", _content_neg_params())
 @pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_countries_xml_accept_returns_406(env_config: dict[str, Any]) -> None:
-    base_url = env_config["countries"]["base_url"]
+def test_content_negotiation_406(env_name: str, env_config: dict[str, Any]) -> None:
+    if env_name not in env_config:
+        pytest.skip(
+            f"--env flag excludes {env_name!r}. Run `pytest` (no --env) to include all security tests."
+        )
+    cfg = env_config[env_name]
+    sec = cfg["security"]
+    base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.request(
             "GET",
-            "/name/germany",
+            sec["probe_path"],
+            params=sec.get("probe_params") or None,
             extra_headers={"Accept": "application/xml"},
         )
-    _attach(resp, name="GET /name/germany (Accept: application/xml)")
+    _attach(resp, name=f"GET {sec['probe_path']} (Accept: application/xml)")
     assert resp.status_code == 406, (
-        f"Expected 406 Not Acceptable for Accept: application/xml, got {resp.status_code}. "
-        f"RFC 7231 §6.5.6: server must return 406 when it cannot produce the requested media type."
+        f"Expected 406 Not Acceptable for Accept: application/xml on {base_url}{sec['probe_path']}, "
+        f"got {resp.status_code}. RFC 7231 §6.5.6: return 406 when requested media type is unavailable."
     )
 
 
 # ---------------------------------------------------------------------------
-# TC-S-004  RFC 7231 VIOLATION — POST /forecast returns 415 instead of 405
+# TC-S-004 / TC-S-005 / ...  OWASP security response headers
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-S-004: POST /forecast returns 405 Method Not Allowed (RFC 7231 compliance)")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Known API bug BUG-006 / Issue #14: POST /forecast returns 415 Unsupported Media Type "
-           "instead of 405 Method Not Allowed. RFC 7231 §6.5.5 requires 405 for unsupported methods. "
-           "415 is only correct when the method is allowed but the content type is wrong. "
-           "xpass if Open-Meteo fixes this — remove xfail marker then.",
-)
+@allure.title("TC-S: {env_name} probe_path returns OWASP baseline security headers")
+@pytest.mark.parametrize("env_name", _header_params())
 @pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_weather_post_method_rfc_violation(env_config: dict[str, Any]) -> None:
-    base_url = env_config["weather"]["base_url"]
-    with HttpClient(base_url) as client:
-        resp = client.request(
-            "POST",
-            "/forecast",
-            params={"latitude": 52.52, "longitude": 13.41, "hourly": "temperature_2m"},
+def test_security_headers_present(env_name: str, env_config: dict[str, Any]) -> None:
+    if env_name not in env_config:
+        pytest.skip(
+            f"--env flag excludes {env_name!r}. Run `pytest` (no --env) to include all security tests."
         )
-    _attach(resp, name="POST /forecast (RFC compliance check)")
-    assert resp.status_code == 405, (
-        f"Expected 405 Method Not Allowed (RFC 7231 §6.5.5), got {resp.status_code}. "
-        f"Actual: 415 Unsupported Media Type — 415 is only correct when the method IS allowed "
-        f"but the content-type is wrong. POST is not an allowed method on /forecast. "
-        f"See BUG-006 / GitHub Issue #14."
-    )
-
-
-# ---------------------------------------------------------------------------
-# TC-S-005  Security headers — Countries API missing HSTS and security headers
-# ---------------------------------------------------------------------------
-
-@allure.title("TC-S-005: REST Countries API returns required security headers")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Known API bug BUG-007 / Issue #15: restcountries.com returns no HSTS, "
-           "X-Content-Type-Options, or X-Frame-Options headers. "
-           "These are OWASP-recommended baseline security headers. "
-           "xpass if API adds these headers — remove xfail marker then.",
-)
-@pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_countries_security_headers_present(env_config: dict[str, Any]) -> None:
-    base_url = env_config["countries"]["base_url"]
+    cfg = env_config[env_name]
+    sec = cfg["security"]
+    base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
-        resp = client.get("/name/germany")
-    _attach(resp, name="GET /name/germany (security header check)")
+        resp = client.get(sec["probe_path"], params=sec.get("probe_params") or None)
     response_headers_lower = {k.lower(): v for k, v in resp.headers.items()}
     allure.attach(
         "\n".join(f"{k}: {v}" for k, v in sorted(response_headers_lower.items())),
-        name="All response headers",
+        name=f"{env_name} — all response headers",
         attachment_type=allure.attachment_type.TEXT,
     )
     missing = [h for h in _SECURITY_HEADERS if h not in response_headers_lower]
     assert not missing, (
-        f"REST Countries API is missing required security headers: {missing}. "
-        f"OWASP baseline: Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options. "
-        f"See BUG-007 / GitHub Issue #15."
+        f"{env_name} ({base_url}) missing OWASP baseline security headers: {missing}. "
+        f"Required: Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options."
     )
 
 
 # ---------------------------------------------------------------------------
-# TC-S-006  Security headers — Open-Meteo API missing HSTS and security headers
+# TC-S-006 / ...  Input safety — injection payloads return 4xx (never 500)
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-S-006: Open-Meteo API returns required security headers")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Known API bug BUG-008 / Issue #16: api.open-meteo.com returns no HSTS, "
-           "X-Content-Type-Options, or X-Frame-Options headers. "
-           "These are OWASP-recommended baseline security headers. "
-           "xpass if API adds these headers — remove xfail marker then.",
-)
+@allure.title("TC-S: {env_name} {label} in injection_path → 4xx (server handles safely)")
+@pytest.mark.parametrize("env_name,label,payload", _injection_params())
 @pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_weather_security_headers_present(env_config: dict[str, Any]) -> None:
-    base_url = env_config["weather"]["base_url"]
-    with HttpClient(base_url) as client:
-        resp = client.get(
-            "/forecast",
-            params={"latitude": 52.52, "longitude": 13.41, "hourly": "temperature_2m", "forecast_days": 1},
+def test_injection_safe(env_name: str, label: str, payload: str, env_config: dict[str, Any]) -> None:
+    if env_name not in env_config:
+        pytest.skip(
+            f"--env flag excludes {env_name!r}. Run `pytest` (no --env) to include all security tests."
         )
-    _attach(resp, name="GET /forecast (security header check)")
-    response_headers_lower = {k.lower(): v for k, v in resp.headers.items()}
-    allure.attach(
-        "\n".join(f"{k}: {v}" for k, v in sorted(response_headers_lower.items())),
-        name="All response headers",
-        attachment_type=allure.attachment_type.TEXT,
-    )
-    missing = [h for h in _SECURITY_HEADERS if h not in response_headers_lower]
-    assert not missing, (
-        f"Open-Meteo API is missing required security headers: {missing}. "
-        f"OWASP baseline: Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options. "
-        f"See BUG-008 / GitHub Issue #16."
-    )
-
-
-# ---------------------------------------------------------------------------
-# TC-S-007  Input safety — SQL injection in /name/ returns 4xx (not 500)
-# ---------------------------------------------------------------------------
-
-@allure.title("TC-S-007: SQL injection in /name/ returns 4xx — server handles safely")
-@pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_countries_sql_injection_safe(env_config: dict[str, Any]) -> None:
-    base_url = env_config["countries"]["base_url"]
+    cfg = env_config[env_name]
+    sec = cfg["security"]
+    base_url = cfg["base_url"]
+    path = sec["injection_path"].replace("{payload}", payload)
     with HttpClient(base_url) as client:
-        resp = client.get("/name/germany' OR 1=1--")
-    _attach(resp, name="SQL injection in /name/")
-    assert resp.status_code < 500, (
-        f"Expected 4xx for SQL injection input, got {resp.status_code}. "
-        f"A 5xx response indicates the server is not safely handling the input."
-    )
+        resp = client.get(path)
+    _attach(resp, name=f"{label} → {path}")
     assert resp.status_code == 404, (
-        f"Expected 404 (treated as unknown country name), got {resp.status_code}."
-    )
-
-
-# ---------------------------------------------------------------------------
-# TC-S-008  Input safety — path traversal in /name/ returns 4xx (not 500)
-# ---------------------------------------------------------------------------
-
-@allure.title("TC-S-008: Path traversal in /name/ returns 4xx — server handles safely")
-@pytest.mark.flaky(reruns=2, reruns_delay=2)
-def test_countries_path_traversal_safe(env_config: dict[str, Any]) -> None:
-    base_url = env_config["countries"]["base_url"]
-    with HttpClient(base_url) as client:
-        resp = client.get("/name/../../etc/passwd")
-    _attach(resp, name="Path traversal in /name/")
-    assert resp.status_code < 500, (
-        f"Expected 4xx for path traversal input, got {resp.status_code}. "
-        f"A 5xx response indicates the server is not safely handling the input."
-    )
-    assert resp.status_code == 404, (
-        f"Expected 404 (path traversal neutralised), got {resp.status_code}."
+        f"Expected 404 (input treated as unknown resource) for {label} on {base_url}{path}, "
+        f"got {resp.status_code}. A 5xx response indicates unsafe input handling — file as bug."
     )

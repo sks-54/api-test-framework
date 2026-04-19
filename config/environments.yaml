@@ -7,9 +7,43 @@ countries:
   thresholds:
     max_response_time: 2.0
     min_results_count: 1
+  security:
+    probe_path: /name/germany
+    probe_params: {}
+    injection_path: /name/{payload}
+    known_violations:
+      - type: security_headers
+        bug_id: BUG-007
+        issue: https://github.com/sks-54/api-test-framework/issues/15
+        reason: "restcountries.com missing HSTS, X-Content-Type-Options, X-Frame-Options"
 
 weather:
   base_url: https://api.open-meteo.com/v1
   thresholds:
     max_response_time: 3.0
     min_results_count: 1
+  security:
+    probe_path: /forecast
+    probe_params:
+      latitude: 52.52
+      longitude: 13.41
+      hourly: temperature_2m
+    known_violations:
+      - type: method
+        method: POST
+        bug_id: BUG-006
+        issue: https://github.com/sks-54/api-test-framework/issues/14
+        reason: "POST /forecast returns 415 instead of 405 (RFC 7231 §6.5.5 violation)"
+      - type: method
+        method: DELETE
+        bug_id: BUG-009
+        issue: https://github.com/sks-54/api-test-framework/issues/18
+        reason: "DELETE /forecast returns 404 instead of 405 (RFC 7231 §6.5.5 violation)"
+      - type: content_negotiation
+        bug_id: BUG-010
+        issue: https://github.com/sks-54/api-test-framework/issues/19
+        reason: "GET /forecast ignores Accept: application/xml — returns 200 JSON instead of 406"
+      - type: security_headers
+        bug_id: BUG-008
+        issue: https://github.com/sks-54/api-test-framework/issues/16
+        reason: "api.open-meteo.com missing HSTS, X-Content-Type-Options, X-Frame-Options"
