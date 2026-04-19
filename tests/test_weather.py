@@ -10,8 +10,6 @@ from typing import Any
 import allure
 import pytest
 
-import requests
-
 from src.http_client import HttpClient
 from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 from src.validators.weather_validator import WeatherValidator
@@ -26,6 +24,20 @@ CITIES = json.loads(
 
 HOURLY_PARAMS = "temperature_2m"
 FORECAST_DAYS = 1
+
+
+def _attach(resp: Any, name: str = "Response") -> None:
+    """Attach HTTP response metadata and body to the Allure report."""
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms",
+        name=f"{name} — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
+    if resp.json_body is not None:
+        body_text = json.dumps(resp.json_body, indent=2)
+        if len(body_text) > 3000:
+            body_text = body_text[:3000] + "\n... (truncated)"
+        allure.attach(body_text, name=f"{name} — body", attachment_type=allure.attachment_type.JSON)
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +61,7 @@ def test_forecast_positive_schema(city: dict[str, Any], env_config: dict[str, An
                 "forecast_days": FORECAST_DAYS,
             },
         )
+    _attach(resp, name=f"{city['name']} forecast")
     assert resp.status_code == 200, (
         f"Expected 200 for {city['name']}, got {resp.status_code}"
     )
@@ -77,11 +90,17 @@ def test_forecast_timezone_present(city: dict[str, Any], env_config: dict[str, A
                 "forecast_days": FORECAST_DAYS,
             },
         )
+    _attach(resp, name=f"{city['name']} forecast")
     assert resp.status_code == 200
     body = resp.json_body
     assert isinstance(body, dict), "Expected dict response"
     assert "timezone" in body, "Response missing 'timezone'"
     assert body["timezone"] and body["timezone"].strip(), "'timezone' must be non-empty"
+    allure.attach(
+        f"timezone: {body.get('timezone')}\nutc_offset_seconds: {body.get('utc_offset_seconds')}",
+        name="Timezone details",
+        attachment_type=allure.attachment_type.TEXT,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +118,7 @@ def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
             "/forecast",
             params={"latitude": 999, "longitude": 999, "hourly": HOURLY_PARAMS},
         )
+    _attach(resp)
     assert resp.status_code == 400, (
         f"Expected 400 for out-of-range coords (lat/lon=999), got {resp.status_code}"
     )
@@ -122,6 +142,7 @@ def test_forecast_missing_params_returns_4xx(env_config: dict[str, Any]) -> None
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/forecast", params={"hourly": HOURLY_PARAMS})
+    _attach(resp)
     assert resp.status_code == 400, (
         f"Expected 400 when required params missing, got {resp.status_code}. "
         f"REST convention: missing required params should return 400."
@@ -149,8 +170,13 @@ def test_forecast_boundary_one_day(env_config: dict[str, Any]) -> None:
                 "forecast_days": 1,
             },
         )
+    temps = resp.json_body.get("hourly", {}).get("temperature_2m", []) if resp.json_body else []
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nHourly entries returned: {len(temps)}\nExpected: 24",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
-    temps = resp.json_body.get("hourly", {}).get("temperature_2m", [])
     assert len(temps) == 24, f"Expected 24 hourly entries for 1 day, got {len(temps)}"
 
 
@@ -175,6 +201,19 @@ def test_forecast_temperature_range(city: dict[str, Any], env_config: dict[str, 
                 "forecast_days": FORECAST_DAYS,
             },
         )
+    temps = (
+        resp.json_body.get("hourly", {}).get("temperature_2m", [])
+        if isinstance(resp.json_body, dict) else []
+    )
+    valid_temps = [t for t in temps if t is not None]
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\n"
+        f"Temps checked: {len(valid_temps)}\n"
+        f"Min observed: {min(valid_temps):.1f}°C\nMax observed: {max(valid_temps):.1f}°C"
+        if valid_temps else f"URL: {resp.url}\nStatus: {resp.status_code}\nNo temps",
+        name=f"{city['name']} — temperature summary",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     result = WeatherValidator().validate(resp.json_body)
     assert result.passed, f"Temperature range violations for {city['name']}: {result.errors}"
@@ -208,6 +247,11 @@ def test_forecast_performance(city: dict[str, Any], env_config: dict[str, Any]) 
                 "forecast_days": FORECAST_DAYS,
             },
         )
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nThreshold: {max_ms:.0f}ms",
+        name=f"{city['name']} — performance metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
     assert resp.response_time_ms < max_ms, (
         f"{city['name']}: {resp.response_time_ms:.1f}ms exceeds threshold {max_ms}ms"
@@ -246,8 +290,13 @@ def test_forecast_boundary_max_days(env_config: dict[str, Any]) -> None:
                 "forecast_days": 16,
             },
         )
+    temps = resp.json_body.get("hourly", {}).get("temperature_2m", []) if resp.json_body else []
+    allure.attach(
+        f"URL: {resp.url}\nStatus: {resp.status_code}\nTime: {resp.response_time_ms:.1f}ms\nHourly entries returned: {len(temps)}\nExpected: 384 (16 days × 24 hours)",
+        name="Response — metadata",
+        attachment_type=allure.attachment_type.TEXT,
+    )
     assert resp.status_code == 200
-    temps = resp.json_body.get("hourly", {}).get("temperature_2m", [])
     assert len(temps) == 16 * 24, f"Expected 384 hourly entries for 16-day forecast, got {len(temps)}"
 
 
@@ -266,10 +315,10 @@ def test_forecast_south_pole_boundary(env_config: dict[str, Any]) -> None:
             "/forecast",
             params={"latitude": -90, "longitude": 0, "hourly": HOURLY_PARAMS},
         )
+    _attach(resp, name="South Pole (lat=-90, lon=0) forecast")
     assert resp.status_code == 200, (
         f"Expected 200 for valid extreme coordinate lat=-90, got {resp.status_code}. "
         f"Spec deviation if not 200 — report as bug."
     )
-    from src.validators.weather_validator import WeatherValidator
     result = WeatherValidator().validate(resp.json_body)
     assert result.passed, result.errors

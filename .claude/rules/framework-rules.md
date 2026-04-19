@@ -405,7 +405,7 @@ If either grep returns a match, it is a pre-commit gate failure. Fix by:
 2. Filing a GitHub issue for the spec deviation
 3. Marking the test `xfail(strict=True, raises=AssertionError, reason="Bug #<issue>: ...")`
 
-## Rule 23 — Post-Rebase Bug Marker Verification
+## Rule 23b — Post-Rebase Bug Marker Verification
 
 After every `git rebase`, `git merge`, or `git cherry-pick` that resolves conflicts, before `git push`:
 1. Run `python scripts/verify_bug_markers.py` immediately
