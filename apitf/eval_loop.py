@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 ADVISOR_MODEL: str = "claude-opus-4-7"
 MAX_RESPONSE_TOKENS: int = 2048
 REFLECTOR_MAX_ITER: int = 3  # max Opus→correct→re-score rounds (test files and test plans)
+REFLECTOR_PASS_THRESHOLD: int = 95  # minimum Opus score to accept generated test file/plan
 
 ReviewResult = dict[str, Any]
 
@@ -336,7 +337,7 @@ def _reflect_test_file(
 {_trim_pytest_output(pytest_output)}
 ```
 
-## Scoring rubric (pass threshold = 70)
+## Scoring rubric (pass threshold = {REFLECTOR_PASS_THRESHOLD})
 Score 0-100 across these dimensions (each worth up to ~15 pts):
 - Technique coverage: equivalence, boundary, positive, negative, performance, security all present
 - Zero hardcoded values — all thresholds and URLs from env_config
@@ -569,9 +570,9 @@ def eval_loop(
         print(f"\n[reflector] ── Opus reflector review (round {reflector_round}) ──────────────")
         review = _reflect_test_file(env, test_file, last_output, reflector_model, api_key=resolved_key)
         score = review.get("score", -1)
-        passed_review = review.get("passed", False)
+        passed_review = review.get("passed", False) and score >= REFLECTOR_PASS_THRESHOLD
         print(f"[reflector] Score   : {score}/100")
-        print(f"[reflector] Passed  : {'✓ yes' if passed_review else '✗ no (threshold = 70)'}")
+        print(f"[reflector] Passed  : {'✓ yes' if passed_review else f'✗ no (threshold = {REFLECTOR_PASS_THRESHOLD})'}")
         if review.get("deviations"):
             print("[reflector] Deviations:")
             for d in review["deviations"]:
@@ -663,7 +664,7 @@ _PLAN_REQUIRED_TECHNIQUES = [
     "Positive", "Schema", "Equivalence", "Boundary",
     "Negative", "Error Handling", "Performance", "Reliability", "Security", "Compatibility",
 ]
-_PLAN_PASS_THRESHOLD = 70
+_PLAN_PASS_THRESHOLD = REFLECTOR_PASS_THRESHOLD
 
 
 def _score_test_plan_structurally(plan_path: Path) -> dict[str, Any]:
@@ -794,7 +795,7 @@ def reflect_test_plan_loop(
     for round_num in range(1, max_iter + 2):
         review = _reflect_test_plan(env, plan_path, structural, model=reflector_model, api_key=api_key)
         score = review.get("score", -1)
-        passed = review.get("passed", False)
+        passed = review.get("passed", False) and score >= REFLECTOR_PASS_THRESHOLD
 
         if score >= 0:
             print(f"[plan-reflector] Opus score: {score}/100  passed={passed}")
