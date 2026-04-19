@@ -460,6 +460,240 @@ Output ONLY the corrected Python source — no markdown fences, no prose."""
 
 
 # ---------------------------------------------------------------------------
+# Bug report generator + reflector
+# ---------------------------------------------------------------------------
+
+_BUG_REPORT_GOLD_STANDARD = """\
+### BUG-001
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-001 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/5 |
+| **Test** | TC-C-004 |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest (API-level bug — reproducible on all platforms) |
+| **Python** | 3.9, 3.11, 3.12 (not platform-specific) |
+| **Title** | `/alpha/ZZZ999` returns 400 Bad Request instead of 404 Not Found |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 404, actual HTTP 400
+curl -s -o /dev/null -w "%{http_code}" "https://restcountries.com/v3.1/alpha/ZZZ999"
+curl -s "https://restcountries.com/v3.1/alpha/ZZZ999" | python3 -m json.tool
+```
+
+**Expected (per spec):** HTTP 404 — resource not found for invalid alpha code
+
+**Actual:** HTTP 400 Bad Request — `{"message":"Bad Request","status":400}`
+
+**Data:**
+- Request URL: `https://restcountries.com/v3.1/alpha/ZZZ999`
+- Status Code: 400
+- Notes: API conflates "invalid format" with "not found" — spec requires 404
+
+---"""
+
+
+def _next_bug_id(project_root: Path) -> str:
+    """Return the next sequential BUG-NNN ID by scanning BUG_REPORT.md."""
+    report = project_root / "BUG_REPORT.md"
+    if not report.exists():
+        return "BUG-001"
+    ids = re.findall(r"BUG-(\d{3})", report.read_text(encoding="utf-8"))
+    n = max((int(i) for i in ids), default=0) + 1
+    return f"BUG-{n:03d}"
+
+
+def _generate_bug_entry(
+    bug_id: str,
+    env: str,
+    base_url: str,
+    failure: "FailureInfo",
+    pytest_output: str,
+    model: str,
+    api_key: str | None,
+) -> str:
+    """Use the generation model to write one BUG_REPORT.md entry for a QUALITY_FAILURE."""
+    traceback_snippet = _trim_pytest_output(pytest_output)
+    prompt = f"""You are writing a bug report entry for an API test framework.
+
+## Gold-standard entry format (copy this structure exactly):
+{_BUG_REPORT_GOLD_STANDARD}
+
+## Failure details
+- Bug ID to assign: {bug_id}
+- Environment: {env}
+- Base URL: {base_url}
+- Failing test: {failure.test_name}
+- Error message: {failure.error_msg[:400]}
+
+## Pytest output (extract the actual vs expected from this):
+```
+{traceback_snippet[-2000:]}
+```
+
+## Rules:
+- Issue field: write exactly `[TBD — file with \`gh issue create --title '[BUG] {bug_id}: ...' --label bug\`]`
+- Test field: derive TC ID from test name (e.g. test_get_todo_schema → TC-TOD-NNN) or write `{env.upper()[:3]}-?`
+- curl commands MUST use the literal resolved URL — no placeholders like <base_url>
+- Both curl variants required: status-only (`-o /dev/null -w "%{{http_code}}"`) AND full JSON (`| python3 -m json.tool`)
+- Comment above curls: `# Expected HTTP NNN, actual HTTP MMM`
+- Severity: P2 for QUALITY_FAILURE unless it's a 5xx (then P1)
+- Platform: `ubuntu-latest, windows-latest, macos-latest (API-level bug — reproducible on all platforms)`
+- Python: `3.9, 3.11, 3.12 (not platform-specific)`
+- End the entry with a line containing only `---`
+
+Output ONLY the markdown entry block starting with `### {bug_id}` — no prose, no extra text."""
+
+    try:
+        return _make_api_call(prompt, model, api_key)
+    except Exception as exc:
+        logger.warning("[bug-reporter] Entry generation failed: %s", exc)
+        return ""
+
+
+def _reflect_bug_entry(
+    bug_id: str,
+    entry_text: str,
+    model: str = ADVISOR_MODEL,
+    api_key: str | None = None,
+) -> ReviewResult:
+    """Opus reviews a generated bug report entry against the gold-standard rubric."""
+    resolved_key, source = detect_ai_mode(api_key)
+    if not resolved_key:
+        return {"score": -1, "passed": False, "deviations": ["No auth"], "corrections": [], "category": "bug-report"}
+
+    prompt = f"""You are reviewing a bug report entry for an API test framework.
+
+## Entry under review
+{entry_text}
+
+## Gold-standard reference
+{_BUG_REPORT_GOLD_STANDARD}
+
+## Scoring rubric (pass threshold = {REFLECTOR_PASS_THRESHOLD})
+Score 0–100 across these dimensions:
+- All required fields present (ID, Issue, Test, Severity, Category, Status, Platform, Python, Title): 20 pts
+- curl commands use the literal resolved URL — NO placeholders like <base_url> or <path>: 20 pts
+- Expected field states the spec contract explicitly (not vague): 15 pts
+- Actual field states observed behavior with status code and response snippet: 15 pts
+- Title is specific — includes endpoint path + actual vs expected status: 15 pts
+- Category correctly assigned (QUALITY_FAILURE vs SLA_VIOLATION): 10 pts
+- Both curl variants present (status-only + full JSON) with comment above: 5 pts
+
+Return JSON only — no markdown fences:
+{{
+  "score": <int 0-100>,
+  "passed": <bool — true if score >= {REFLECTOR_PASS_THRESHOLD}>,
+  "deviations": ["<specific issue>", ...],
+  "corrections": ["<specific fix>", ...],
+  "category": "bug-report"
+}}"""
+
+    print(f"[bug-reporter] Sending {bug_id} to {model} for review (via {source}) …")
+    try:
+        raw = _make_api_call(prompt, model, api_key)
+        return json.loads(_strip_fences(raw))
+    except Exception as exc:
+        logger.warning("[bug-reporter] Reflect call failed: %s", exc)
+        return {"score": -1, "passed": False, "deviations": [str(exc)], "corrections": [], "category": "error"}
+
+
+def generate_bug_report_loop(
+    env: str,
+    base_url: str,
+    failures: "list[FailureInfo]",
+    pytest_output: str,
+    project_root: Path,
+    model: str,
+    reflector_model: str = ADVISOR_MODEL,
+    api_key: str | None = None,
+) -> list[str]:
+    """For each QUALITY_FAILURE: generate → Opus reflect → Sonnet correct → append to BUG_REPORT.md.
+
+    Returns list of bug IDs written. Does NOT file GitHub issues or add xfail markers —
+    those remain manual steps enforced by verify_bug_markers.py.
+    """
+    resolved_key, _ = detect_ai_mode(api_key)
+    if not resolved_key:
+        print("[bug-reporter] No auth — skipping auto bug report generation.", file=sys.stderr)
+        return []
+
+    report_path = project_root / "BUG_REPORT.md"
+    written_ids: list[str] = []
+
+    for failure in failures:
+        bug_id = _next_bug_id(project_root)
+        print(f"\n[bug-reporter] ── Generating {bug_id} for {failure.test_name} ──")
+
+        entry = _generate_bug_entry(bug_id, env, base_url, failure, pytest_output, model, resolved_key)
+        entry = _strip_fences(entry)
+
+        for round_num in range(1, REFLECTOR_MAX_ITER + 2):
+            review = _reflect_bug_entry(bug_id, entry, model=reflector_model, api_key=resolved_key)
+            score = review.get("score", -1)
+            passed = review.get("passed", False) and score >= REFLECTOR_PASS_THRESHOLD
+            if score >= 0:
+                print(f"[bug-reporter] Score: {score}/100  passed={passed}")
+            for dev in review.get("deviations", []):
+                print(f"[bug-reporter]   deviation: {dev}")
+
+            if passed or score < 0:
+                break
+            if round_num > REFLECTOR_MAX_ITER:
+                print(f"[bug-reporter] Max correction rounds reached — accepting best effort entry.")
+                break
+
+            corrections = review.get("corrections", [])
+            if not corrections:
+                break
+
+            print(f"[bug-reporter] Applying {len(corrections)} correction(s) …")
+            fix_prompt = f"""You are correcting a bug report markdown entry.
+
+## Current entry
+{entry}
+
+## Required corrections (apply ALL)
+{chr(10).join(f'{i+1}. {c}' for i, c in enumerate(corrections))}
+
+Rules:
+- curl commands must use the literal URL — no placeholders
+- Both curl variants required: status-only and full JSON
+- Issue field must contain the `gh issue create` instruction
+- End with a line containing only `---`
+
+Output ONLY the corrected markdown entry starting with `### {bug_id}` — no prose."""
+
+            try:
+                fixed = _make_api_call(fix_prompt, model, resolved_key)
+                entry = _strip_fences(fixed)
+            except Exception as exc:
+                logger.warning("[bug-reporter] Correction failed: %s", exc)
+                break
+
+        # Append to BUG_REPORT.md
+        if entry.strip():
+            existing = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+            # Insert under "## Open Bugs" section if present, otherwise append
+            if "## Open Bugs" in existing:
+                insert_pos = existing.index("## Open Bugs") + len("## Open Bugs\n")
+                updated = existing[:insert_pos] + "\n" + entry.strip() + "\n\n" + existing[insert_pos:]
+            else:
+                updated = existing.rstrip() + "\n\n" + entry.strip() + "\n"
+            report_path.write_text(updated, encoding="utf-8")
+            print(f"[bug-reporter] Wrote {bug_id} to BUG_REPORT.md")
+            written_ids.append(bug_id)
+        else:
+            print(f"[bug-reporter] Empty entry for {failure.test_name} — skipping write.", file=sys.stderr)
+
+    return written_ids
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -555,12 +789,41 @@ def eval_loop(
             for f in quality:
                 print(f"  [{f.category}] {f.test_name}")
                 print(f"    {f.error_msg[:120]}")
-            print(
-                "\n  Action required:\n"
-                "  1. File a GitHub issue for each deviation.\n"
-                "  2. Add @pytest.mark.xfail(strict=True, reason='Bug #N: ...') to the test.\n"
-                "  3. Re-run apitf-run (or pytest --env) to confirm xfailed state."
+
+            # Derive project_root and base_url for bug report generation
+            _project_root = test_file.parent.parent
+            _base_url = ""
+            try:
+                import yaml as _yaml
+                _env_data = _yaml.safe_load(
+                    (_project_root / "config" / "environments.yaml").read_text(encoding="utf-8")
+                ) or {}
+                _base_url = _env_data.get(env, {}).get("base_url", "")
+            except Exception:
+                pass
+
+            bug_ids = generate_bug_report_loop(
+                env=env,
+                base_url=_base_url,
+                failures=quality,
+                pytest_output=last_output,
+                project_root=_project_root,
+                model=model,
+                reflector_model=reflector_model,
+                api_key=resolved_key,
             )
+
+            print("\n  Next steps for each bug:")
+            for bug_id in bug_ids:
+                print(f"  1. gh issue create --title '[BUG] {bug_id}: <title>' --label bug")
+                print(f"     → Add the issue URL to BUG_REPORT.md under {bug_id}")
+                print(f"  2. Add @pytest.mark.xfail(strict=True, reason='{bug_id} / Issue #N: ...') to the test")
+            if not bug_ids:
+                print(
+                    "  1. File a GitHub issue for each deviation.\n"
+                    "  2. Add @pytest.mark.xfail(strict=True, reason='Bug #N: ...') to the test.\n"
+                    "  3. Re-run apitf-run (or pytest --env) to confirm xfailed state."
+                )
             break
         else:
             break
