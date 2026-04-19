@@ -94,14 +94,3 @@ def pytest_collection_modifyitems(
                     "run under --env weather. Use `pytest` (no --env flag) to run all environments."
                 )
             ))
-        elif (
-            item.get_closest_marker("security")
-            and not item.get_closest_marker("countries")
-            and not item.get_closest_marker("weather")
-        ):
-            item.add_marker(pytest.mark.skip(
-                reason=(
-                    f"--env {selected_env} selected: security tests are cross-environment "
-                    "and only run without --env flag. Run `pytest` (no --env) to include security tests."
-                )
-            ))

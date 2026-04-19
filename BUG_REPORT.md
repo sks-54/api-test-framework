@@ -219,7 +219,7 @@ time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-33.8688&longitude
 |-------|-------|
 | **ID** | BUG-006 |
 | **Issue** | https://github.com/sks-54/api-test-framework/issues/14 |
-| **Test** | TC-S-004 |
+| **Test** | test_method_not_allowed[weather-POST] |
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
@@ -251,7 +251,7 @@ curl -s -X POST "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude
 |-------|-------|
 | **ID** | BUG-007 |
 | **Issue** | https://github.com/sks-54/api-test-framework/issues/15 |
-| **Test** | TC-S-005 |
+| **Test** | test_security_headers_present[countries] |
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
@@ -281,7 +281,7 @@ curl -sI "https://restcountries.com/v3.1/name/germany" | grep -i "strict-transpo
 |-------|-------|
 | **ID** | BUG-008 |
 | **Issue** | https://github.com/sks-54/api-test-framework/issues/16 |
-| **Test** | TC-S-006 |
+| **Test** | test_security_headers_present[weather] |
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
@@ -302,6 +302,58 @@ curl -sI "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&
 **Data:**
 - Endpoint: `https://api.open-meteo.com/v1/forecast?...`
 - Missing headers: `strict-transport-security`, `x-content-type-options`, `x-frame-options`
+
+---
+
+### BUG-009
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-009 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/18 |
+| **Test** | test_method_not_allowed[weather-DELETE] |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level bug) |
+| **Python** | 3.11 |
+| **Title** | `DELETE /forecast` returns 404 instead of 405 Method Not Allowed |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 405, actual HTTP 404
+curl -s -o /dev/null -w "%{http_code}" -X DELETE "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m"
+```
+
+**Expected:** HTTP 405 — RFC 7231 §6.5.5
+
+**Actual:** HTTP 404 — server treats the route as missing rather than the method as unsupported
+
+---
+
+### BUG-010
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-010 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/19 |
+| **Test** | test_content_negotiation_406[weather] |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | OPEN |
+| **Platform** | ubuntu-latest (API-level bug) |
+| **Python** | 3.11 |
+| **Title** | `GET /forecast` ignores `Accept: application/xml` — returns 200 JSON instead of 406 |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 406, actual HTTP 200 with JSON body
+curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/xml" "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m"
+```
+
+**Expected:** HTTP 406 — RFC 7231 §6.5.6: return 406 when the server cannot produce the requested media type
+
+**Actual:** HTTP 200 with JSON body — server silently ignores the Accept header
 
 ---
 
