@@ -69,7 +69,7 @@ def load_bug_registry() -> dict[str, dict[str, str]]:
 
 
 _KNOWN_VIOLATION_TYPES: frozenset[str] = frozenset({"method", "security_headers", "content_negotiation"})
-_KNOWN_VIOLATION_METHODS: frozenset[str] = frozenset({"POST", "DELETE"})
+_KNOWN_VIOLATION_METHODS: frozenset[str] = frozenset({"POST", "DELETE", "PUT", "PATCH"})
 
 
 def load_yaml_covered_bugs() -> set[str]:
@@ -90,7 +90,8 @@ def load_yaml_covered_bugs() -> set[str]:
     for env_name, env_cfg in data.items():
         if env_name == "version" or not isinstance(env_cfg, dict):
             continue
-        for violation in env_cfg.get("security", {}).get("known_violations", []):
+        sec = env_cfg.get("security", {})
+        for violation in sec.get("known_violations", []):
             bug_id = violation.get("bug_id", "")
             vtype = violation.get("type", "")
             if not bug_id:

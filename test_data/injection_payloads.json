@@ -1,0 +1,8 @@
+[
+  {"label": "sql_injection",   "payload": "germany' OR 1=1--"},
+  {"label": "path_traversal",  "payload": "../../etc/passwd"},
+  {"label": "xss",             "payload": "<script>alert(1)</script>"},
+  {"label": "null_byte",       "payload": "germany%00admin"},
+  {"label": "crlf_injection",  "payload": "germany\r\nX-Injected: 1"},
+  {"label": "cmd_injection",   "payload": "germany;ls"}
+]
