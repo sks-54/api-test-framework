@@ -133,7 +133,7 @@ print(f'{len(zero)} entries with population=0:', zero)
 | Field | Value |
 |-------|-------|
 | **ID** | BUG-004 |
-| **Issue** | TBD — file via `gh issue create --label bug,sla-violation` |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/8 |
 | **Test** | TC-W-004, TC-W-010 |
 | **Severity** | P1 |
 | **Category** | SLA_VIOLATION |
