@@ -92,4 +92,4 @@
 
 | Date | Phase | Deviation | Resolution |
 |------|-------|-----------|------------|
-| —    | —     | —         | —          |
+| 2026-04-18 | Phase 2 | Hardcoded `_DEFAULT_THRESHOLDS` in `pdf_parser.py` violated Rule 1 | Replaced with `_UNRESOLVED_THRESHOLDS = {}` — callers resolve against `environments.yaml` |
