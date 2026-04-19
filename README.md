@@ -6,7 +6,7 @@
 [![Allure](https://img.shields.io/badge/report-allure-orange)](https://allurereport.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A production-grade, extensible multi-environment API test framework built for the PANW Sr Staff QA take-home. Covers REST Countries and Open-Meteo APIs across two environments with 31 test cases spanning 10 testing techniques. Add a new API by editing one config file and adding one validator — zero framework changes required.
+A production-grade, extensible multi-environment API test framework. Point it at any spec document (PDF, OpenAPI, Markdown) and it extracts endpoint definitions, generates typed validators, and produces complete pytest test files — all driven by config and Claude Code skills, with zero manual scaffolding. Ships with REST Countries and Open-Meteo as reference implementations covering 31 test cases across 10 testing techniques.
 
 ---
 
@@ -19,13 +19,14 @@ A production-grade, extensible multi-environment API test framework built for th
 5. [Framework Components](#framework-components)
 6. [Test Coverage](#test-coverage)
 7. [Test Design Techniques](#test-design-techniques)
-8. [Adding a New API](#adding-a-new-api)
-9. [Bug Lifecycle](#bug-lifecycle)
-10. [CI/CD Pipeline](#cicd-pipeline)
-11. [Rules Reference](#rules-reference)
-12. [Design Decisions](#design-decisions)
-13. [Troubleshooting](#troubleshooting)
-14. [Contributing](#contributing)
+8. [Spec-Driven Development](#spec-driven-development)
+9. [Adding a New API](#adding-a-new-api)
+10. [Bug Lifecycle](#bug-lifecycle)
+11. [CI/CD Pipeline](#cicd-pipeline)
+12. [Rules Reference](#rules-reference)
+13. [Design Decisions](#design-decisions)
+14. [Troubleshooting](#troubleshooting)
+15. [Contributing](#contributing)
 
 ---
 
@@ -153,47 +154,64 @@ sequenceDiagram
 
 ### 3. Multi-Agent Development Workflow
 
-Shows how Claude Sonnet (implementer) and Claude Opus (advisor) collaborated to build and review each phase.
+Shows how the main Claude Code session (Implementer) spawns parallel subagents — each with its own isolated context window — and synthesizes their results before committing.
+
+**Key mechanic:** `Agent()` is a fork. Every subagent receives a self-contained prompt and runs concurrently. No shared state — the result is a single message returned to the spawning session.
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant S as Claude Sonnet<br/>Implementer
-    participant O as Claude Opus<br/>Advisor / Reviewer
+    participant M as Main Session<br/>(Implementer)
+    participant O as Subagent: Advisor<br/>Agent(model="opus")<br/>isolated context
+    participant E as Subagent: Explorer<br/>Agent(subagent_type="Explore")<br/>isolated context
     participant CI as GitHub Actions
     participant GH as GitHub Issues
 
-    U->>S: Phase N request
-    S->>S: Generate code + tests
-    S->>O: Agent(model="opus")<br/>diff + requirements.txt + rules
-    O-->>S: Gap analysis + deviations + corrections
+    U->>M: Phase N request
+    M->>M: Generate code + tests
 
-    loop Correction iterations (max 5)
-        S->>S: Apply correction
-        S->>O: Re-review
-        O-->>S: Approved / next correction
+    Note over M,E: Parallel spawn — both agents run concurrently in one message
+    par
+        M->>+O: prompt: diff + rules + requirements.txt<br/>Task: score + list deviations
+    and
+        M->>+E: prompt: find all test files + check markers<br/>Task: surface structural gaps
+    end
+    O-->>-M: gap analysis + required fixes (score, ordered list)
+    E-->>-M: file inventory + missing patterns
+
+    M->>M: synthesize both results
+    M->>M: apply corrections (highest-severity first)
+
+    loop Correction iterations (max 5 per phase)
+        M->>+O: Agent(model="opus") re-review<br/>prompt: updated diff + same rules
+        O-->>-M: approved — or — next required fix
     end
 
-    S->>S: verify_bug_markers.py (pre-push hook)
-    S->>CI: bash scripts/push.sh<br/>(blocks until CI completes)
+    M->>M: verify_bug_markers.py (pre-push hook)
+    M->>CI: bash scripts/push.sh (blocks until complete)
 
-    alt CI QUALITY_FAILURE
-        CI-->>S: test failed with wrong API behavior
-        S->>GH: gh issue create --label bug
-        S->>S: add @pytest.mark.xfail(strict=True)
-        S->>CI: bash scripts/push.sh again
-    else CI ENV_FAILURE
-        CI-->>S: network timeout / transient
-        S->>S: retry up to 2 times
-    else CI STRUCTURAL_FAILURE
-        CI-->>S: import error / fixture error
-        S->>S: fix code + push
+    alt QUALITY_FAILURE
+        CI-->>M: wrong status / schema mismatch
+        M->>GH: gh issue create --label bug
+        M->>M: @pytest.mark.xfail(strict=True, reason="BUG-NNN / Issue #N")
+        M->>CI: bash scripts/push.sh again → CI green
+    else ENV_FAILURE
+        CI-->>M: transient network timeout
+        M->>M: retry up to 2 times (flaky marker)
+    else STRUCTURAL_FAILURE
+        CI-->>M: import error / fixture error
+        M->>M: fix + push
     end
 
     CI-->>U: All checks green
-    S->>O: Final Opus review before PR merge
-    O-->>U: Approved — safe to merge
+    M->>+O: Agent(model="opus") final review before PR merge
+    O-->>-U: approved — safe to merge
 ```
+
+**Why each subagent gets its own context window:**
+- No accumulated noise from earlier turns bleeds into the review
+- Opus sees only what is in the prompt — makes the review deterministic and reproducible
+- Parallel spawning means Explore (codebase search) and Opus (gap analysis) run simultaneously rather than sequentially, cutting wall-clock review time in half
 
 ### 4. Extensibility — Add a New API in 3 Steps
 
@@ -892,6 +910,240 @@ def test_germany_schema(env_config):
     ...
 # xfail tests are exempt (already have stable CI outcome)
 # HTTPS enforcement tests are exempt (no live socket opened)
+```
+
+---
+
+## Spec-Driven Development
+
+The fastest path to testing a new API is to drop its spec document into `specs/` and let the framework extract endpoint definitions automatically. This section covers the complete loop from spec file to running tests.
+
+### How It Works — The Spec-to-Tests Pipeline
+
+```mermaid
+flowchart TD
+    SPEC["specs/myapi.pdf\n(or .yaml / .md)"]
+
+    REG["SpecParserRegistry\nroutes by file extension\n\n.pdf → PDFParser\n.yaml/.json → OpenAPIParser stub\n.md → MarkdownParser stub"]
+
+    SPEC --> REG
+
+    PARSE["Parser extracts:\nEndpointSpec(\n  env_name='myapi',\n  base_url='https://api.example.com/v1',\n  path='/items/{id}',\n  method='GET',\n  response_fields=['id','name','value'],\n  thresholds={}\n)"]
+
+    REG --> PARSE
+
+    YAML["config/environments.yaml\nauto-updated:\nmyapi:\n  base_url: https://api.example.com/v1\n  thresholds:\n    max_response_time: 2.0\n    min_results_count: 1"]
+
+    SKILLS["Claude Code Skills\n(invoked by name in Claude Code session)"]
+
+    PARSE --> YAML
+    PARSE --> SKILLS
+
+    VAL["Skill: /validator-generator\n→ src/validators/myapi_validator.py\n\nTyped BaseValidator subclass:\n- REQUIRED_FIELDS constant\n- isinstance() type checks\n- range validation\n- collects ALL errors\n- never short-circuits"]
+
+    TST["Skill: /test-generator\n→ tests/test_myapi.py\n\nComplete pytest file:\n- positive, negative, boundary, performance\n- env_config for all thresholds\n- HttpClient (never raw requests)\n- @pytest.mark.flaky(reruns=2)\n- allure.suite('myapi')"]
+
+    SKILLS --> VAL
+    SKILLS --> TST
+
+    RUN["pytest --env myapi -v --alluredir=allure-results\n\n→ 4+ tests run against live API\n→ Allure report with myapi suite\n→ BugReporter fires on any failure"]
+
+    VAL --> RUN
+    TST --> RUN
+    YAML --> RUN
+```
+
+### Step 1 — Add the Spec File
+
+Place your spec document in `specs/`:
+
+```bash
+specs/
+├── home_test.PDF      # existing — REST Countries + Open-Meteo
+└── myapi_spec.pdf     # your new spec
+```
+
+Supported formats:
+
+| Format | Extension | Parser | Status |
+|--------|-----------|--------|--------|
+| PDF | `.pdf`, `.PDF` | `PDFParser` (PyMuPDF / pdfplumber) | Implemented |
+| OpenAPI 3.x / Swagger | `.yaml`, `.yml`, `.json` | `OpenAPIParser` | Stub — see ENHANCEMENTS.md E-01 |
+| Markdown | `.md`, `.markdown` | `MarkdownParser` | Stub — see ENHANCEMENTS.md E-02 |
+
+### Step 2 — Run the Spec Parser
+
+Open a Claude Code session in this directory and invoke the skill:
+
+```
+/spec-parser SPEC_PATH=specs/myapi_spec.pdf
+```
+
+Or run the parser directly in Python:
+
+```python
+from pathlib import Path
+from src.spec_parser.base_parser import SpecParserRegistry
+from src.spec_parser.pdf_parser import PDFParser
+
+registry = SpecParserRegistry()
+registry.register(PDFParser())
+
+specs = registry.parse(Path("specs/myapi_spec.pdf"))
+for spec in specs:
+    print(spec)
+# EndpointSpec(env_name='myapi', base_url='https://api.example.com/v1',
+#              path='/items/42', method='GET', response_fields=[], thresholds={})
+```
+
+The skill does three things automatically:
+1. Parses the spec and prints all extracted `EndpointSpec` objects
+2. Updates `config/environments.yaml` with new environment blocks (base_url only — thresholds are `{}` from the parser)
+3. Prints the exact `/test-generator` invocation for each extracted endpoint
+
+**What the parser extracts from a PDF:**
+- Every `GET/POST/PUT/DELETE/PATCH` keyword found in the text
+- The nearest `https://` URL preceding each method keyword
+- The environment name inferred from the hostname (`restcountries` → `countries`, `open-meteo` → `weather`, unknown → hostname slug)
+- The path extracted from the URL (everything after the third `/`)
+
+### Step 3 — Set Thresholds in environments.yaml
+
+The parser always emits `thresholds={}` — this is enforced by `document-parsing.md` Rule 4. Fill in real thresholds before running tests:
+
+```yaml
+myapi:
+  base_url: https://api.example.com/v1
+  thresholds:
+    max_response_time: 2.0   # seconds — set based on SLA contract
+    min_results_count: 1     # minimum items in list responses
+```
+
+### Step 4 — Generate the Validator
+
+With a sample JSON response from the API, invoke the validator skill in a Claude Code session:
+
+```
+/validator-generator
+  SAMPLE_JSON={"id": 42, "name": "Widget", "value": 9.99, "active": true}
+  ENDPOINT_NAME="MyAPI Item Lookup"
+  CLASS_NAME=MyApiValidator
+  OUTPUT_MODULE=myapi_validator
+```
+
+This generates `src/validators/myapi_validator.py` — a typed `BaseValidator` subclass that:
+- Defines `REQUIRED_FIELDS` as a module-level constant
+- Checks root type (list or dict) first
+- Runs `isinstance()` type checks on each field
+- Applies numeric range checks where applicable
+- Collects ALL errors without short-circuiting
+- Returns `self._pass()` exactly once, at the end
+
+### Step 5 — Generate the Test File
+
+Invoke the test generator with the endpoint details:
+
+```
+/test-generator
+  ENDPOINT_URL=https://api.example.com/v1
+  ENDPOINT_PATH=/items/{id}
+  HTTP_METHOD=GET
+  RESPONSE_FIELDS=id,name,value,active
+  ENV_NAME=myapi
+  VALIDATOR_CLASS=MyApiValidator
+  DATA_FILE=test_data/myapi_items.json
+```
+
+This generates `tests/test_myapi.py` with four tests out of the box:
+
+| Test | Technique | What it asserts |
+|------|-----------|-----------------|
+| `test_item_positive` | Equivalence | Valid ID → 200 + schema valid via MyApiValidator |
+| `test_item_negative` | Negative | Invalid ID → exact 404 (never `>= 400`) |
+| `test_item_boundary` | Boundary | Edge case input (ID=0, ID=max_int, empty string) |
+| `test_item_performance` | Performance | `response_time_ms < env_config["myapi"]["thresholds"]["max_response_time"] * 1000` |
+
+Every generated test:
+- Uses `HttpClient` (never raw `requests`)
+- Has `@pytest.mark.flaky(reruns=2, reruns_delay=2)` (live-API call)
+- Reads all thresholds from `env_config` (zero hardcoded numbers)
+- Has `@allure.title("TC-X-NNN: ...")` and `allure.suite("myapi")`
+
+### Step 6 — Run the Tests
+
+```bash
+# Single environment
+pytest --env myapi -v --alluredir=allure-results
+
+# All environments including new one
+pytest -v --alluredir=allure-results
+```
+
+The `--env myapi` flag works automatically because `conftest.py` discovers all keys from `environments.yaml` at collection time — no code change needed.
+
+### Extending the Parser Registry
+
+To add a new parser format (e.g., Postman collection JSON):
+
+```python
+# src/spec_parser/postman_parser.py
+from __future__ import annotations
+from pathlib import Path
+from src.spec_parser.base_parser import BaseSpecParser, EndpointSpec
+
+class PostmanParser(BaseSpecParser):
+    supported_extensions: tuple[str, ...] = (".postman_collection.json",)
+
+    def parse(self, source: Path) -> list[EndpointSpec]:
+        import json
+        data = json.loads(source.read_text(encoding="utf-8"))
+        specs = []
+        for item in data.get("item", []):
+            # extract method, url, response fields from Postman item format
+            ...
+        return specs
+```
+
+Register it before parsing:
+
+```python
+registry = SpecParserRegistry()
+registry.register(PDFParser())
+registry.register(PostmanParser())    # auto-dispatches for .postman_collection.json
+specs = registry.parse(Path("specs/myapi.postman_collection.json"))
+```
+
+The registry selects the parser by calling `parser.can_parse(source)` on each registered parser — dispatch is purely by `source.suffix`, so extension is the only thing that matters.
+
+### Complete Example — End to End
+
+```bash
+# 1. Drop spec into specs/
+cp ~/Downloads/myapi_openapi.yaml specs/
+
+# 2. Parse (once OpenAPIParser is implemented — see ENHANCEMENTS.md E-01)
+#    Until then, use the PDF version of the spec or implement the stub
+python - <<'EOF'
+from pathlib import Path
+from src.spec_parser.base_parser import SpecParserRegistry
+from src.spec_parser.pdf_parser import PDFParser
+
+registry = SpecParserRegistry()
+registry.register(PDFParser())
+specs = registry.parse(Path("specs/myapi_spec.pdf"))
+for s in specs:
+    print(f"env={s.env_name}  method={s.method}  path={s.path}  base={s.base_url}")
+EOF
+
+# 3. Fill in thresholds in config/environments.yaml
+
+# 4. Use Claude Code skills (in a Claude Code session):
+#    /validator-generator SAMPLE_JSON=... CLASS_NAME=MyApiValidator ...
+#    /test-generator ENDPOINT_URL=... ENV_NAME=myapi ...
+
+# 5. Run
+pytest --env myapi -v --alluredir=allure-results
+allure serve allure-results
 ```
 
 ---
