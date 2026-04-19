@@ -43,6 +43,8 @@ When a bug is reproduced on additional platforms or Python versions, update the
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest (API-level bug — reproducible on all platforms) |
+| **Python** | 3.9, 3.11, 3.12 (not platform-specific) |
 | **Title** | `/alpha/ZZZ999` returns 400 Bad Request instead of 404 Not Found |
 
 **curl (reproduces bug):**
@@ -73,6 +75,8 @@ curl -s "https://restcountries.com/v3.1/alpha/ZZZ999" | python3 -m json.tool
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest (API-level bug — reproducible on all platforms) |
+| **Python** | 3.9, 3.11, 3.12 (not platform-specific) |
 | **Title** | `/forecast` without required `lat`/`lon` returns 200 instead of 400 |
 
 **curl (reproduces bug):**
@@ -104,6 +108,8 @@ curl -s "https://api.open-meteo.com/v1/forecast?hourly=temperature_2m" | python3
 | **Severity** | P3 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest (API-level bug — reproducible on all platforms) |
+| **Python** | 3.9, 3.11, 3.12 (not platform-specific) |
 | **Title** | 5 territories return `population=0` violating minimum population contract |
 
 **curl (reproduces bug):**
@@ -143,6 +149,8 @@ print(f'{len(zero)} entries with population=0:', zero)
 | **Severity** | P1 |
 | **Category** | SLA_VIOLATION |
 | **Status** | OPEN |
+| **Platform** | ubuntu-latest (first observed); also macos-latest — runner IP throttling is OS-agnostic |
+| **Python** | 3.11 (first observed); same on 3.9, 3.12 (IP throttling, not version-specific) |
 | **Title** | Open-Meteo `/forecast` consistently times out in CI — all reruns exhausted (SLA violation) |
 
 **curl (measures response time):**
@@ -178,6 +186,8 @@ time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-90&longitude=0&ho
 | **Severity** | P1 |
 | **Category** | SLA_VIOLATION |
 | **Status** | OPEN |
+| **Platform** | ubuntu-latest (ConnectionError path), windows-latest (AssertionError path — ConnectionResetError(10054) → slow 200) |
+| **Python** | 3.9, 3.11, 3.12 (failure mode differs by OS, not Python version) |
 | **Title** | Open-Meteo `/forecast` times out from CI runners before response time can be measured |
 
 **curl (measures response time):**
