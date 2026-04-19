@@ -6,4 +6,4 @@ pyyaml>=6.0,<7.0
 
 # === Framework additions (beyond spec, documented in ENHANCEMENTS.md) ===
 pdfplumber>=0.10,<1.0   # PDF spec parser (spec_parser/pdf_parser.py)
-pytest-retry>=1.0,<2.0  # Retry on 5xx responses (reliability test coverage)
+pytest-rerunfailures>=12.0,<16.0  # Retry flaky tests — uses reruns=/reruns_delay= kwargs

@@ -84,6 +84,40 @@ Before any `git push`:
 3. `python -c "import yaml; yaml.safe_load(open('config/environments.yaml'))"` — YAML valid
 4. Company name scan (see Rule 12)
 5. `python -m mypy src/ tests/ --ignore-missing-imports` — no type errors
+6. `python scripts/verify_bug_markers.py` — every open bug in BUG_REPORT.md has a matching `@pytest.mark.xfail`
+
+Step 6 is **machine-enforced** by the git pre-push hook (installed via `bash scripts/setup_hooks.sh`).
+The hook blocks the push if it exits non-zero. This cannot be forgotten.
+
+Use `bash scripts/push.sh` instead of `git push`. It pushes and immediately
+runs `gh run watch` — the terminal blocks until CI completes (Rule 18 enforced).
+
+## Rule 8a — Every Rule Must Be Enforced
+
+A rule that is not enforced is not a rule — it is a suggestion, and suggestions get
+ignored under pressure. There is no "behavioural" tier. Every rule must be backed by
+a mechanism that makes violation impossible or immediately visible.
+
+| Enforcement mechanism | How it works | Examples |
+|----------------------|--------------|---------|
+| **Script blocks the action** | Non-zero exit stops the workflow | pre-push hook → `verify_bug_markers.py`, `scripts/push.sh` → `gh run watch` |
+| **CI blocks the merge** | Branch protection requires green gate | Rule 19 — quality gate job must pass before GitHub allows merge |
+| **Script must be run** | Documented in Rule 8 checklist; hook or wrapper invokes it | Company name scan, YAML parse, collect-only |
+
+**If a rule keeps being violated, the fix is never "more discipline" — it is a stronger
+enforcement mechanism.** Promote the rule to the next level:
+- Violated behavioural rule → write a script
+- Script keeps being skipped → put it in the git hook or push wrapper
+- Hook keeps being bypassed → enforce it in CI so the PR cannot merge
+
+**Current enforcement map:**
+- Rule 8 Step 6 (xfail markers): `scripts/verify_bug_markers.py` in git pre-push hook — **blocks push**
+- Rule 18 (CI monitoring): `scripts/push.sh` calls `gh run watch` after every push — **blocks terminal until CI completes**
+- Rule 19 (no merge with failures): GitHub branch protection + quality gate job — **blocks merge**
+- Rule 12 (company name scan): in Rule 8 checklist, run before push — **scripted**
+
+Use `bash scripts/push.sh` instead of `git push` on this project.
+Use `bash scripts/setup_hooks.sh` once after cloning to install the pre-push hook.
 
 ## Rule 9 — No Direct Pushes to Main
 
@@ -271,3 +305,230 @@ The session start protocol:
 This rule exists because Opus has no persistent state — it only knows what is
 in its prompt. The session start protocol ensures Opus always has full context
 before advising.
+
+## Rule 21 — SLA Violations Are Bugs, Not Flakiness
+
+Response time SLAs are defined in `config/environments.yaml` under
+`thresholds.max_response_time`. An endpoint that consistently exceeds this
+threshold is violating its SLA contract — that is a bug, not transient noise.
+
+**Distinction:**
+- `@pytest.mark.flaky(reruns=2)` is for *transient* network issues (ENV_FAILURE:
+  one-off timeout, DNS blip). A single retry is acceptable.
+- If a test fails on **all reruns** (all 3 attempts), the failure is *consistent*
+  and must be treated as a confirmed bug, not a flaky ENV_FAILURE.
+
+**Protocol when a performance or timeout test exhausts all reruns:**
+1. Categorize as `SLA_VIOLATION` (sub-type of QUALITY_FAILURE)
+2. File a GitHub issue immediately:
+   - Label: `bug`, `sla-violation`
+   - Title: `[BUG] SLA: <endpoint> response time > <threshold>ms consistently`
+   - Body: test name, measured times across all attempts, threshold, environment
+3. Mark the test `@pytest.mark.xfail(strict=True, reason="SLA violation #<issue>...")`
+   so CI can pass while the bug is tracked
+4. Do NOT raise `max_response_time` in YAML to make the test pass — that hides the bug
+
+```python
+# CORRECT — SLA from config, never hardcoded
+max_ms = env_config["thresholds"]["max_response_time"] * 1000
+assert resp.response_time_ms < max_ms, (
+    f"SLA violation: {resp.response_time_ms:.0f}ms > {max_ms:.0f}ms. "
+    f"File as bug if consistently failing across reruns."
+)
+
+# FORBIDDEN — hiding the SLA
+max_ms = 10_000  # raised to "fix" the test
+```
+
+## Rule 22 — SLA xfail Markers Must Cover All Failure Modes, Not the Platform-Specific Exception
+
+When an SLA_VIOLATION test is marked `xfail`, the `raises=` tuple must cover **both** ways
+the test can fail — regardless of which platform or OS triggered the first observation:
+
+```python
+# CORRECT — import the adapter; never inline the tuple
+from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
+
+@pytest.mark.xfail(
+    strict=False,
+    raises=SLA_FAILURE_EXCEPTIONS,
+    reason="BUG-NNN / Issue #N: <endpoint> SLA_VIOLATION — "
+           "no response → ConnectionError, or slow response → AssertionError on response_time_ms.",
+)
+
+# FORBIDDEN — inline tuple: platform-specific and requires hunting every xfail if a new case appears
+@pytest.mark.xfail(
+    strict=False,
+    raises=(AssertionError, requests.exceptions.ConnectionError),  # don't inline this
+    reason="...",
+)
+
+# FORBIDDEN — incomplete: only catches Linux hard-timeout, misses Windows reset-retry path
+@pytest.mark.xfail(
+    strict=False,
+    raises=requests.exceptions.ConnectionError,
+    reason="...",
+)
+```
+
+`SLA_FAILURE_EXCEPTIONS` is defined in `src/sla_exceptions.py` and is the single place to
+update if a new exception type is ever needed. The module documents why the two types are
+exhaustive so future maintainers don't second-guess the design.
+
+**Why both are needed:**
+
+| Platform | TCP failure mode | urllib3 outcome | Exception reaching pytest |
+|----------|-----------------|-----------------|--------------------------|
+| Linux/mac | Read timeout (30s) | All retries exhaust, no response | `ConnectionError` |
+| Windows | `ConnectionResetError(10054)` — server closes connection mid-attempt | Retries succeed but accumulate 30s+ | `AssertionError` (slow 200) |
+
+Both are the same SLA violation. Writing `raises=ConnectionError` models Linux's exception,
+not the underlying cause. Writing `raises=(AssertionError, ConnectionError)` models the
+**intent**: this test may fail because the API is too slow, in whatever way that manifests.
+
+**Adding a new platform never requires updating xfail markers** if they are written this way.
+The two exception types are exhaustive for any HTTP client failure: either you get no response
+(any flavour of `ConnectionError`), or you get a slow one (`AssertionError` on the threshold).
+
+## Rule 23 — Pre-Commit Assertion Integrity Check
+
+Before every `git add` on test files, scan for forbidden assertion patterns that
+hide spec deviations:
+
+```bash
+grep -n "status_code in (" tests/test_*.py && echo "FORBIDDEN: widened assertion"
+grep -n ">= [0-9].*<" tests/test_*.py | grep "status_code" && echo "FORBIDDEN: range assertion on status"
+```
+
+If either grep returns a match, it is a pre-commit gate failure. Fix by:
+1. Asserting the exact expected status code
+2. Filing a GitHub issue for the spec deviation
+3. Marking the test `xfail(strict=True, raises=AssertionError, reason="Bug #<issue>: ...")`
+
+## Rule 23 — Post-Rebase Bug Marker Verification
+
+After every `git rebase`, `git merge`, or `git cherry-pick` that resolves conflicts, before `git push`:
+1. Run `python scripts/verify_bug_markers.py` immediately
+2. Any conflict resolution that takes `--theirs` or `--ours` can silently drop xfail markers
+   added in a later commit whose context conflicts with the resolved base
+3. If markers are missing, re-add them manually — never skip this step
+4. This rule applies equally to `git merge`, squash-merges from GitHub UI, and `git cherry-pick`
+
+```bash
+# After any rebase/merge/cherry-pick completes:
+python scripts/verify_bug_markers.py  # catches missing markers immediately
+# Non-zero exit → add missing @pytest.mark.xfail(strict=True, ...) to the test, commit, then push
+```
+
+This rule was added after xfail markers for BUG-001/002/003 were silently dropped
+during a rebase, causing TC-C-004 to show as FAILED instead of XFAIL in CI.
+
+## Rule 24 — Bug Reports Must Include curl Reproduction Command
+
+Every entry in `BUG_REPORT.md` must include a `curl` command that reproduces the bug.
+This allows any engineer to independently reproduce the issue without setting up the test framework.
+
+```bash
+# Format — paste this into the bug's Steps to Reproduce section:
+curl -s "https://api.example.com/v1/endpoint?param=value" | python3 -m json.tool
+```
+
+Requirements:
+- The curl URL must be complete and runnable as-is (no placeholder substitution needed)
+- Include `-s` (silent) and pipe to `python3 -m json.tool` for readable JSON output
+- If the bug requires request headers, include them with `-H "Header: value"`
+- Add a one-line comment above the curl showing what the expected vs actual status code is
+
+When adding a new bug entry, always include the curl command before filing the GitHub issue —
+confirm the curl reproduces the bug locally first, then add both to BUG_REPORT.md and the issue body.
+
+## Rule 25 — Acknowledged Changes Are Not Complete Until Written to a File
+
+A change discussed or agreed upon in conversation is **not done** until it exists in a committed file.
+There is no "I'll do that" — only "I did that (see commit X)."
+
+This applies to:
+- Rule changes (framework-rules.md, testing-standards.md, etc.)
+- Protocol changes (CLAUDE.md, CI config)
+- Bug report updates (BUG_REPORT.md, CLAUDE_LOG.md)
+- Deliverable status changes (DELIVERABLES.md)
+
+**Pattern that violates this rule:** A design decision is made in conversation (e.g., CI should skip doc-only pushes), acknowledged verbally, then omitted from the actual file. The commit goes out with the old behavior. Subsequent Opus reviews find the discrepancy.
+
+**Enforcement:** After any verbal agreement on a change, the implementer must immediately:
+1. Write the change to the appropriate file
+2. Include it in the next commit
+3. Reference the change in the commit message
+
+No partial acknowledgements. If it wasn't committed, it didn't happen.
+
+## Rule 26 — CI Matrix Design: Test Dimensions Independently, Not as a Cartesian Product
+
+OS compatibility and Python version compatibility are independent dimensions. Testing every
+OS × every Python version produces a cartesian product that grows quadratically and provides
+almost no additional signal beyond testing each dimension separately.
+
+**Why they are independent:**
+- OS bugs (path separators, encoding, tempfile locations) do not change with Python minor version
+- Python version bugs (deprecated syntax, stdlib removals, type-hint changes) do not change by OS
+
+**The correct structure (6 jobs):**
+```
+Stage 1 — Smoke     : ubuntu / 3.11      → fast-fail on import errors; proves basic correctness
+Stage 2 — Platform  : windows/3.11
+                      mac/3.11           → proves OS compat on one stable Python version
+Stage 3 — Versions  : ubuntu / 3.9
+                      ubuntu / 3.12      → proves version-boundary compat on cheapest runner
+Stage 4 — Gate      : always()           → blocks merge if any stage failed
+```
+
+**Why only 3.9 and 3.12 in the version stage:**
+If code works on the oldest (3.9) and newest (3.12) supported Python, it works on every
+intermediate version. Intermediate versions (3.10, 3.11) add no signal and double the cost.
+3.11 is already covered by smoke and platform.
+
+**Forbidden patterns:**
+- Full cartesian product (3 OS × 4 Python = 12 jobs) — the default that GitHub suggests
+- Running the version sweep on windows/mac (OS compat is already proven; just wastes budget)
+- Adding 3.10 to the version matrix (intermediate version, no additional signal)
+
+**When to revisit:** If a new OS-specific Python bug is found (e.g., a Windows-only issue on
+3.12), add a targeted `exclude:` or a specific extra job — do not expand back to full cartesian.
+
+## Rule 27 — Keep GitHub Actions on the Current Node.js Runtime
+
+GitHub Actions deprecates Node.js runtimes on a published schedule. Running stale action
+versions produces `##[warning]Node.js XX actions are deprecated` in every CI log and will
+become hard failures when GitHub removes the old runtime from runners.
+
+**Protocol:**
+1. At session start, if any CI run contains a Node.js deprecation warning, update the
+   affected actions before doing any other work.
+2. Pin actions to the latest major version tag that ships the current Node.js runtime.
+   Check latest versions with:
+   ```bash
+   gh api repos/actions/checkout/releases/latest --jq '.tag_name'
+   gh api repos/actions/setup-python/releases/latest --jq '.tag_name'
+   gh api repos/actions/cache/releases/latest --jq '.tag_name'
+   gh api repos/actions/upload-artifact/releases/latest --jq '.tag_name'
+   ```
+3. Update `.github/workflows/ci.yml` immediately — do not defer.
+4. Add the version bump to the same commit as any other CI change in progress.
+
+**Why this matters:** The warning is a deadline, not a suggestion. GitHub publishes a
+removal date. If the runner removes Node.js 20 and actions still pin to v4/v5 Node.js 20
+builds, CI silently breaks on all branches simultaneously.
+
+```yaml
+# CORRECT — current Node.js 24-compatible versions (as of 2026-04-19)
+uses: actions/checkout@v6.0.2
+uses: actions/setup-python@v6.2.0
+uses: actions/cache@v5.0.5
+uses: actions/upload-artifact@v7.0.1
+
+# STALE — triggers Node.js 20 deprecation warning
+uses: actions/checkout@v4.2.2
+uses: actions/setup-python@v5.5.0
+uses: actions/cache@v4.2.3
+uses: actions/upload-artifact@v4.6.2
+```
