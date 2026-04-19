@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Cancel in-progress runs on same branch to save resources
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Stage 1: Smoke test (cheapest — ubuntu + Python 3.11 only) ──────────────
+  # Full matrix only runs if this passes. Saves ~11 runner-minutes on bad pushes.
+  smoke:
+    name: Smoke (ubuntu / Python 3.11)
+    runs-on: ubuntu-latest
+    outputs:
+      smoke_passed: ${{ steps.run.outcome == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-3.11-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-3.11-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect tests (import + discovery check)
+        run: pytest --collect-only -q 2>&1 | tee collect.log; exit ${PIPESTATUS[0]}
+
+      - id: run
+        name: Run tests — countries environment
+        run: |
+          pytest --env countries -v \
+            --alluredir=allure-results \
+            --tb=short \
+            -p no:cacheprovider \
+            2>&1 | tee test-output.log
+          echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
+          tail -20 test-output.log >> $GITHUB_STEP_SUMMARY
+
+      - name: Run tests — weather environment
+        run: |
+          pytest --env weather -v \
+            --alluredir=allure-results \
+            --tb=short \
+            -p no:cacheprovider \
+            2>&1 | tee -a test-output.log
+          tail -20 test-output.log >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Allure results (reference artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-ubuntu-311
+          path: allure-results/
+          retention-days: 7
+
+  # ── Stage 2: Full platform matrix (only runs if smoke passes) ────────────────
+  # fail-fast: true cancels remaining jobs immediately on first failure.
+  matrix:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    needs: smoke
+    if: success()
+    runs-on: ${{ matrix.os }}
+    fail-fast: true
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        exclude:
+          # ubuntu-3.11 already ran in smoke — skip to avoid duplicate cost
+          - os: ubuntu-latest
+            python-version: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/AppData/Local/pip/Cache
+          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run full test suite
+        run: |
+          pytest -v --tb=short -p no:cacheprovider 2>&1 | tee test-output.log
+          exit ${PIPESTATUS[0]}
+        shell: bash
+
+      - name: Print test summary
+        if: always()
+        shell: bash
+        run: tail -20 test-output.log || true
+
+  # ── Stage 3: Gate — blocks merge if either stage failed ─────────────────────
+  gate:
+    name: Quality Gate
+    needs: [smoke, matrix]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all stages passed
+        run: |
+          if [[ "${{ needs.smoke.result }}" != "success" || "${{ needs.matrix.result }}" != "success" ]]; then
+            echo "❌ Quality gate FAILED — smoke=${{ needs.smoke.result }} matrix=${{ needs.matrix.result }}"
+            exit 1
+          fi
+          echo "✅ Quality gate PASSED"
