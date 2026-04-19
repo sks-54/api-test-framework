@@ -25,6 +25,7 @@ EXPECTED_EUROPE_REGION_MIN: int = 40
 
 @allure.title("TC-C-001: Germany lookup by name returns valid schema")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_germany_schema(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -41,6 +42,7 @@ def test_germany_schema(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-002: Country lookup by ISO alpha-2 code (DE)")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_country_by_alpha_code(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -59,6 +61,7 @@ def test_country_by_alpha_code(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-003: Non-existent country name returns 404")
 @pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_invalid_country_name_returns_404(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -96,6 +99,7 @@ def test_invalid_alpha_code_returns_404(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-005: Europe region count meets minimum boundary")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_europe_region_count(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -115,6 +119,7 @@ def test_europe_region_count(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-006: Very low population country (Vatican) passes schema validation")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_very_low_population_passes_validator(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -131,6 +136,7 @@ def test_very_low_population_passes_validator(env_config: dict[str, Any]) -> Non
 
 @allure.title("TC-C-007: Cross-reference — Germany's region endpoint contains Germany")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_cross_reference_germany_region(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -153,6 +159,7 @@ def test_cross_reference_germany_region(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-008: All-countries endpoint returns at least min_results_count entries")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_all_countries_min_count(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -172,6 +179,7 @@ def test_all_countries_min_count(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-009: Germany lookup response time within threshold")
 @pytest.mark.performance
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_germany_lookup_performance(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -190,6 +198,7 @@ def test_germany_lookup_performance(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-010: Region/Europe response time within threshold")
 @pytest.mark.performance
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_europe_region_performance(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -219,6 +228,7 @@ def test_https_enforced(_env_config: dict[str, Any] | None = None) -> None:
 
 @allure.title("TC-C-012: Response JSON body is deserializable as a list of dicts")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_response_json_structure(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -235,6 +245,7 @@ def test_response_json_structure(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-013: Language filter /lang/spa returns Spanish-speaking countries")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_countries_by_language(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -253,6 +264,7 @@ def test_countries_by_language(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-014: Currency filter /currency/eur returns eurozone countries")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_countries_by_currency(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -269,6 +281,7 @@ def test_countries_by_currency(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-015: Invalid region returns 404")
 @pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_invalid_region_returns_404(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -283,6 +296,7 @@ def test_invalid_region_returns_404(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-016: Fields filter limits response keys to requested fields only")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_fields_filter_limits_response(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -303,6 +317,7 @@ def test_fields_filter_limits_response(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-017: Germany response flag URL uses HTTPS")
 @pytest.mark.security
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_germany_flag_url_uses_https(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -323,6 +338,7 @@ def test_germany_flag_url_uses_https(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-018: Country name search is case-insensitive")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_country_name_case_insensitive(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -342,6 +358,7 @@ def test_country_name_case_insensitive(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-019: Empty path segment in /name/ returns 4xx")
 @pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_empty_name_segment_returns_4xx(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -359,6 +376,7 @@ def test_empty_name_segment_returns_4xx(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-020: First 10 countries from /all pass full schema validation")
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_all_countries_schema_sample(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]

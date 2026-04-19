@@ -5,6 +5,35 @@ secondary to anything stated here.
 
 ---
 
+## 10. Every Live-API Test Must Have `@pytest.mark.flaky(reruns=2, reruns_delay=2)`
+
+Any test function that makes a live HTTP call (uses `HttpClient`) must be decorated
+with `@pytest.mark.flaky(reruns=2, reruns_delay=2)` **at authoring time**, not after the
+first CI failure.
+
+```python
+# CORRECT — retry declared upfront
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_germany_schema(env_config):
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/name/germany")
+    ...
+
+# FORBIDDEN — single failure prematurely files a bug
+@pytest.mark.equivalence
+def test_germany_schema(env_config):
+    ...
+```
+
+**Exceptions:**
+- Tests using `pytest.raises(ValueError)` on `HttpClient` construction (HTTPS enforcement — no socket opened)
+- Tests with `@pytest.mark.xfail` (already have a stable CI outcome; `pytest-rerunfailures` doesn't retry xfail)
+
+**Enforcement:** `scripts/verify_bug_markers.py` blocks push if any live-API test lacks the marker.
+
+---
+
 ## 1. Parametrize From JSON Files — Never Inline Test Data
 
 All `@pytest.mark.parametrize` calls must load data from `test_data/`. Inline
