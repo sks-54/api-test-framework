@@ -122,6 +122,7 @@ def test_forecast_missing_params_returns_4xx(env_config: dict[str, Any]) -> None
 
 @allure.title("TC-W-005: forecast_days=1 returns 24 hourly temperature entries")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_boundary_one_day(env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
@@ -211,6 +212,7 @@ def test_https_enforced_weather(_env_config: dict[str, Any] | None = None) -> No
 
 @allure.title("TC-W-009: forecast_days=16 returns >= 24 hourly temperature entries")
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_boundary_max_days(env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]

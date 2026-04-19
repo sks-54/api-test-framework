@@ -35,6 +35,28 @@ find and report bugs, not to make tests pass.
 3. Run `gh issue list --label bug` for unfiled known bugs
 4. Spawn Opus audit before starting any new implementation (Rule 20)
 
+## Pull Main After Every Merge
+
+After any PR merges to main, immediately run:
+```bash
+git fetch origin && git checkout main && git pull origin main
+```
+Then rebase all open feature branches onto the updated main:
+```bash
+git checkout <branch> && git rebase origin/main
+```
+Never let a branch sit stale against an outdated main.
+
+## Conflict Resolution Protocol
+
+When raising a new PR or after any PR merges:
+1. Run `gh pr list` — identify all open PRs
+2. For each open PR, check `gh pr view <N> --json mergeable` — if `CONFLICTING`, resolve immediately
+3. Fix conflicts via `git rebase origin/main` (rebase over merge — keeps linear history)
+4. **Do NOT trigger CI on a conflicting PR** — push only after conflicts are resolved
+5. For content conflicts: take the version that preserves the spec contract (our testing-compatible http_client, our stricter assertions, our rules)
+6. Only escalate to human if the conflict involves a fundamental architecture change that cannot be resolved without design input
+
 ## Key files
 - `config/environments.yaml` — single source of truth for all thresholds and base URLs
 - `CLAUDE_LOG.md` — phase status, known bugs, process violations, Opus review log
