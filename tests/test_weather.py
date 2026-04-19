@@ -90,6 +90,7 @@ def test_forecast_timezone_present(city: dict[str, Any], env_config: dict[str, A
 
 @allure.title("TC-W-003: Out-of-range latitude (999) returns 4xx")
 @pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
@@ -225,10 +226,10 @@ def test_https_enforced_weather(_env_config: dict[str, Any] | None = None) -> No
 
 
 # ---------------------------------------------------------------------------
-# TC-W-009  Boundary — forecast_days=16 (max) returns at least 24 entries
+# TC-W-009  Boundary — forecast_days=16 (max) returns exactly 384 hourly entries (16 × 24)
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-W-009: forecast_days=16 returns >= 24 hourly temperature entries")
+@allure.title("TC-W-009: forecast_days=16 returns exactly 384 hourly temperature entries")
 @pytest.mark.boundary
 @pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_boundary_max_days(env_config: dict[str, Any]) -> None:
@@ -247,11 +248,11 @@ def test_forecast_boundary_max_days(env_config: dict[str, Any]) -> None:
         )
     assert resp.status_code == 200
     temps = resp.json_body.get("hourly", {}).get("temperature_2m", [])
-    assert len(temps) >= 24, f"Expected >= 24 entries for 16-day forecast, got {len(temps)}"
+    assert len(temps) == 16 * 24, f"Expected 384 hourly entries for 16-day forecast, got {len(temps)}"
 
 
 # ---------------------------------------------------------------------------
-# TC-W-010  Negative — extreme south pole coordinates return 4xx
+# TC-W-010  Boundary — extreme south pole coordinates (lat=-90) return 200 with valid schema
 # ---------------------------------------------------------------------------
 
 @allure.title("TC-W-010: Coordinates at south pole extremity (lat=-90) returns 200 with valid schema")
