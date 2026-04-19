@@ -104,15 +104,22 @@ def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
 # TC-W-004  Negative — missing required params returns 4xx
 # ---------------------------------------------------------------------------
 
-@allure.title("TC-W-004: Missing latitude/longitude parameters returns 4xx")
+@allure.title("TC-W-004: Missing latitude/longitude parameters returns 400")
 @pytest.mark.negative
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="Known API bug BUG-002 / Issue #6: /forecast without lat/lon returns 200 silently. "
+           "xpass if API fixes this — remove xfail marker then.",
+)
 def test_forecast_missing_params_returns_4xx(env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
     with HttpClient(base_url) as client:
         resp = client.get("/forecast", params={"hourly": HOURLY_PARAMS})
-    assert 400 <= resp.status_code < 500, (
-        f"Expected 4xx when params missing, got {resp.status_code}"
+    assert resp.status_code == 400, (
+        f"Expected 400 when required params missing, got {resp.status_code}. "
+        f"Spec deviation — see BUG-002 / GitHub Issue #6."
     )
 
 

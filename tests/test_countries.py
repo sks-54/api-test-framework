@@ -73,6 +73,12 @@ def test_invalid_country_name_returns_404(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-C-004: Invalid alpha code returns 404 — deviations are bugs")
 @pytest.mark.negative
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="Known API bug BUG-001 / Issue #5: /alpha/ZZZ999 returns 400 instead of 404. "
+           "xpass if API fixes this — remove xfail marker then.",
+)
 def test_invalid_alpha_code_returns_404(env_config: dict[str, Any]) -> None:
     cfg = env_config["countries"]
     base_url = cfg["base_url"]
@@ -80,7 +86,7 @@ def test_invalid_alpha_code_returns_404(env_config: dict[str, Any]) -> None:
         resp = client.get("/alpha/ZZZ999")
     assert resp.status_code == 404, (
         f"Expected 404 (resource not found), got {resp.status_code}. "
-        f"If API returns 400 here, that is a spec deviation — report as bug."
+        f"Spec deviation — see BUG-001 / GitHub Issue #5."
     )
 
 
@@ -362,3 +368,33 @@ def test_all_countries_schema_sample(env_config: dict[str, Any]) -> None:
     sample = resp.json_body[:10]
     result = CountryValidator().validate(sample)
     assert result.passed, result.errors
+
+
+# ---------------------------------------------------------------------------
+# TC-C-021  Boundary — all countries must have population >= 1
+# ---------------------------------------------------------------------------
+
+@allure.title("TC-C-021: All countries from /all have population >= 1")
+@pytest.mark.boundary
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="Known API bug BUG-003 / Issue #7: 5 uninhabited territories return population=0. "
+           "xpass if API fixes this — remove xfail marker then.",
+)
+def test_all_population_boundary(env_config: dict[str, Any]) -> None:
+    cfg = env_config["countries"]
+    base_url = cfg["base_url"]
+    with HttpClient(base_url) as client:
+        resp = client.get("/all", params={"fields": "name,population"})
+    assert resp.status_code == 200
+    zero_pop = [
+        item.get("name", {}).get("common", "unknown")
+        for item in resp.json_body
+        if isinstance(item, dict) and item.get("population", 1) == 0
+    ]
+    assert zero_pop == [], (
+        f"Expected all countries to have population >= 1. "
+        f"Found {len(zero_pop)} with population=0: {zero_pop}. "
+        f"Spec deviation — see BUG-003 / GitHub Issue #7."
+    )
