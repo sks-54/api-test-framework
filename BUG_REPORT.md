@@ -184,14 +184,17 @@ time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-33.8688&longitude
 
 **Expected:** Response within `max_response_time` defined in `config/environments.yaml`
 
-**Actual:** `ConnectionError: Max retries exceeded — ReadTimeoutError (read timeout=30)` from all 3 urllib3 retries. Performance assertion is never reached.
+**Actual:** Two failure modes depending on platform — same root cause (Open-Meteo throttles/resets GitHub Actions runner IPs):
+1. **Linux/mac:** Hard timeout → `ConnectionError: ReadTimeoutError` — performance assertion never reached
+2. **Windows:** `ConnectionResetError(10054)` → urllib3 retries succeed but accumulate 30s+ → `AssertionError: response_time_ms > threshold`
 
 **Data:**
-- Failing test: `test_forecast_performance[Sydney]` (TC-W-007) — all 5 cities at risk
-- CI run: 24625873422
-- Error: `ReadTimeoutError: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out`
-- Root cause: Same as BUG-004 — Open-Meteo blocks/throttles GitHub Actions runner IPs
-- Per Rule 21: consistent failure across ALL reruns = SLA_VIOLATION
+- Failing test: `test_forecast_performance[*]` (TC-W-007) — any city
+- CI runs: 24625873422 (Sydney/Linux), platform stage (Mumbai/Windows — 31954ms > 3000ms)
+- Linux error: `ReadTimeoutError: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out`
+- Windows error: `ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host')` → retry → 200 OK but 31,954ms elapsed
+- Root cause: Open-Meteo blocks/throttles GitHub Actions runner IPs
+- Per Rule 21: consistent failure = SLA_VIOLATION
 
 ---
 

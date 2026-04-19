@@ -187,9 +187,11 @@ def test_forecast_temperature_range(city: dict[str, Any], env_config: dict[str, 
 @pytest.mark.performance
 @pytest.mark.xfail(
     strict=False,
-    raises=requests.exceptions.ConnectionError,
-    reason="Known API bug BUG-005 / Issue #9: Open-Meteo /forecast times out from CI runners "
-           "before response time can be measured — SLA_VIOLATION.",
+    raises=(AssertionError, requests.exceptions.ConnectionError),
+    reason="Known API bug BUG-005 / Issue #9: Open-Meteo SLA_VIOLATION from CI runners — "
+           "two failure modes: (1) hard timeout → ConnectionError (Linux/mac); "
+           "(2) connection reset + retry → slow 200 → AssertionError on response_time_ms (Windows). "
+           "Same root cause: Open-Meteo throttles/resets GitHub Actions runner IPs.",
 )
 def test_forecast_performance(city: dict[str, Any], env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
