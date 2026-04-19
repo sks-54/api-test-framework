@@ -1,6 +1,6 @@
 # Enhancements Roadmap
 
-> Tracked post-`v1.0.0`. All items below are out of scope for the initial release but are architecturally prepared (stubs, hooks, or extension points exist in v1.0.0).
+> Tracked post-`v2.0.0.0`. All items below are out of scope for the initial release but are architecturally prepared (stubs, hooks, or extension points exist in v2.0.0.0).
 
 ---
 
