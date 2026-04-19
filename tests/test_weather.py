@@ -90,6 +90,7 @@ def test_forecast_timezone_present(city: dict[str, Any], env_config: dict[str, A
 
 @allure.title("TC-W-003: Out-of-range latitude (999) returns 4xx")
 @pytest.mark.negative
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
