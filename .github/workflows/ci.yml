@@ -6,19 +6,17 @@ on:
   pull_request:
     branches: ["**"]
 
-# Cancel in-progress runs on same branch to save resources
+# Cancel in-progress runs on same branch/PR to avoid wasted spend
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ── Stage 1: Smoke test (cheapest — ubuntu + Python 3.11 only) ──────────────
-  # Full matrix only runs if this passes. Saves ~11 runner-minutes on bad pushes.
+  # ── Stage 1: Smoke (ubuntu-latest + Python 3.11 only) ────────────────────────
+  # Cheapest possible signal. Full matrix only runs if this passes.
   smoke:
-    name: Smoke (ubuntu / Python 3.11)
+    name: Smoke (ubuntu / 3.11)
     runs-on: ubuntu-latest
-    outputs:
-      smoke_passed: ${{ steps.run.outcome == 'success' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -28,40 +26,51 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache pip dependencies
+      - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-${{ runner.os }}-3.11-${{ hashFiles('requirements.txt') }}
-          restore-keys: pip-${{ runner.os }}-3.11-
+          key: pip-ubuntu-3.11-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-ubuntu-3.11-
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Collect tests (import + discovery check)
-        run: pytest --collect-only -q 2>&1 | tee collect.log; exit ${PIPESTATUS[0]}
-
-      - id: run
-        name: Run tests — countries environment
+      - name: Collect tests (discovery + import check)
+        shell: bash
         run: |
-          pytest --env countries -v \
-            --alluredir=allure-results \
-            --tb=short \
-            -p no:cacheprovider \
-            2>&1 | tee test-output.log
-          echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
-          tail -20 test-output.log >> $GITHUB_STEP_SUMMARY
+          set -o pipefail
+          pytest --collect-only -q 2>&1 | tee collect.log || code=$?
+          # Exit code 5 = no tests collected (valid during early phases)
+          if [ "${code:-0}" -eq 5 ]; then
+            echo "⚠️  No tests collected yet — skipping run (early phase)"
+            exit 0
+          fi
+          exit "${code:-0}"
 
-      - name: Run tests — weather environment
+      - name: Run tests — countries
+        shell: bash
         run: |
-          pytest --env weather -v \
-            --alluredir=allure-results \
-            --tb=short \
-            -p no:cacheprovider \
-            2>&1 | tee -a test-output.log
-          tail -20 test-output.log >> $GITHUB_STEP_SUMMARY
+          set -o pipefail
+          pytest --env countries -v --alluredir=allure-results --tb=short \
+            -p no:cacheprovider 2>&1 | tee test-countries.log || code=$?
+          if [ "${code:-0}" -eq 5 ]; then echo "No tests collected"; exit 0; fi
+          echo "### Countries Test Summary" >> "$GITHUB_STEP_SUMMARY"
+          tail -20 test-countries.log >> "$GITHUB_STEP_SUMMARY"
+          exit "${code:-0}"
 
-      - name: Upload Allure results (reference artifact)
+      - name: Run tests — weather
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest --env weather -v --alluredir=allure-results --tb=short \
+            -p no:cacheprovider 2>&1 | tee test-weather.log || code=$?
+          if [ "${code:-0}" -eq 5 ]; then echo "No tests collected"; exit 0; fi
+          echo "### Weather Test Summary" >> "$GITHUB_STEP_SUMMARY"
+          tail -20 test-weather.log >> "$GITHUB_STEP_SUMMARY"
+          exit "${code:-0}"
+
+      - name: Upload Allure results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -69,21 +78,19 @@ jobs:
           path: allure-results/
           retention-days: 7
 
-  # ── Stage 2: Full platform matrix (only runs if smoke passes) ────────────────
-  # fail-fast: true cancels remaining jobs immediately on first failure.
+  # ── Stage 2: Full platform matrix (only if smoke passes) ─────────────────────
+  # ubuntu/3.11 excluded — already covered by smoke. Saves 1 runner.
   matrix:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     needs: smoke
     if: success()
     runs-on: ${{ matrix.os }}
-    fail-fast: true
     strategy:
       fail-fast: true
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
         exclude:
-          # ubuntu-3.11 already ran in smoke — skip to avoid duplicate cost
           - os: ubuntu-latest
             python-version: "3.11"
 
@@ -95,7 +102,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Cache pip dependencies
+      - name: Cache pip
         uses: actions/cache@v4
         with:
           path: |
@@ -108,27 +115,29 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run full test suite
+        shell: bash
         run: |
-          pytest -v --tb=short -p no:cacheprovider 2>&1 | tee test-output.log
-          exit ${PIPESTATUS[0]}
-        shell: bash
+          set -o pipefail
+          pytest -v --tb=short -p no:cacheprovider 2>&1 | tee test-output.log || code=$?
+          if [ "${code:-0}" -eq 5 ]; then echo "No tests collected"; exit 0; fi
+          tail -20 test-output.log
+          exit "${code:-0}"
 
-      - name: Print test summary
-        if: always()
-        shell: bash
-        run: tail -20 test-output.log || true
-
-  # ── Stage 3: Gate — blocks merge if either stage failed ─────────────────────
+  # ── Stage 3: Quality gate — blocks merge if any stage failed ─────────────────
   gate:
     name: Quality Gate
     needs: [smoke, matrix]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Check all stages passed
+      - name: Evaluate results
+        shell: bash
         run: |
-          if [[ "${{ needs.smoke.result }}" != "success" || "${{ needs.matrix.result }}" != "success" ]]; then
-            echo "❌ Quality gate FAILED — smoke=${{ needs.smoke.result }} matrix=${{ needs.matrix.result }}"
+          smoke="${{ needs.smoke.result }}"
+          matrix="${{ needs.matrix.result }}"
+          echo "Smoke: $smoke | Matrix: $matrix"
+          if [[ "$smoke" != "success" || "$matrix" != "success" ]]; then
+            echo "❌ Quality gate FAILED"
             exit 1
           fi
           echo "✅ Quality gate PASSED"
