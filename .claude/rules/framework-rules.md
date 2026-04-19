@@ -1,121 +1,273 @@
-# Framework Architecture Rules
+# Framework Rules — Multi-Environment API Test Framework
 
-These rules govern the architecture and constraints of this test framework.
-They are specific to this codebase — not generic Python style.
-Claude Code and Opus advisor must enforce these on every review.
+These rules govern how phases are implemented, reviewed, committed, and merged.
+Violations are tracked in CLAUDE_LOG.md as STRUCTURAL_FAILURE.
 
 ---
 
 ## Rule 1 — Zero Hardcoded Values
 
-- All URLs must live in `config/environments.yaml` — never in test files, fixtures, or src/
-- All thresholds (`max_response_time`, `min_results_count`) must be read from `env_config` fixture — never hardcoded in test assertions
-- `src/spec_parser/` parsers must return `thresholds={}` — callers resolve against `environments.yaml`
-- **Violation example:** `assert response_time < 2.0` ← hardcoded; correct: `assert response_time < env["thresholds"]["max_response_time"]`
+`config/environments.yaml` is the single source of truth for all thresholds,
+base URLs, timeouts, and numeric limits. Module-level constants are only
+permitted as cached/derived values loaded from YAML at import time — never as
+primary definitions. Magic literals in test bodies are forbidden.
 
-## Rule 2 — URL Atomicity
+```python
+# CORRECT — derived from YAML
+MAX_RESP_MS = env_config["thresholds"]["max_response_time"] * 1000
 
-- URLs (`http://` or `https://`) are atomic units — never split across lines, string concatenations, f-strings spanning lines, or multiline expressions
-- Always assign the complete URL to a named variable on a single line
-- Parser chunks must not break mid-URL — page joins must use whitespace separators
-- **Violation example:** `url = base + "/region/" + region` ← must use `urljoin` or be a single expression
-- **Correct:** `base_url: https://restcountries.com/v3.1` (single line in YAML)
+# FORBIDDEN — primary definition outside YAML
+MAX_RESP_MS = 2000
+```
+
+When a test reads `env_config`, it reads the loaded representation of
+`config/environments.yaml`. The two names refer to the same data.
+
+## Rule 2 — URL Atomicity (Framework-wide)
+
+URLs (`https://`) are atomic units everywhere in this codebase.
+Never split across lines, string concatenations, f-strings spanning lines,
+or multiline expressions. Always assign the complete URL to a named variable
+on a single line. See `document-parsing.md` Rule 1 for the parser-specific
+implementation pattern (regex group extraction).
 
 ## Rule 3 — Validator Contract
 
-- All validators must extend `src/validators/base_validator.BaseValidator`
-- `validate()` must collect ALL errors — never short-circuit on first failure
-- New API = new validator subclass. Framework code never handles per-API schema logic directly.
+All response validation must use a `BaseValidator` subclass. The contract:
+- `validate()` collects ALL errors — never short-circuits mid-loop
+- Returns `ValidationResult` via `self._pass()` at the end (always)
+- Ad-hoc `assert "field" in response` inside test files is forbidden
 
-## Rule 4 — Test File Isolation
+## Rule 4 — Test Isolation and Fixture Scoping
 
-- Test files must not import from other test files
-- All shared state flows through fixtures defined in `tests/conftest.py`
-- `conftest.py` is the single source of `base_url` and `thresholds` — never re-read `environments.yaml` inside a test
+Each test must be independently runnable. No test may depend on execution
+order or shared mutable state.
 
-## Rule 5 — Extensibility Contract
+Allowed fixture scopes:
+- `function` (default) — stateful or write fixtures
+- `session` — read-only config only (`env_config`)
+- `module` / `class` — only for grouping related setup with no side-effects
 
-Adding a new API requires exactly these steps — no more, no fewer:
+Shared helpers (auth setup, custom request builders) belong in `src/` or
+`tests/conftest.py`, never duplicated per test file.
+
+## Rule 5 — Extensibility Gate
+
+The three-step path is the minimum required to add a new API:
 1. Add entry to `config/environments.yaml`
-2. Add `src/validators/<name>_validator.py` extending `BaseValidator`
-3. Add `tests/test_<name>.py` using the `env_config` fixture
+2. Add `src/validators/<new>_validator.py` extending `BaseValidator`
+3. Add `tests/test_<new>.py` using the `environment` fixture
 
-Zero changes to: `conftest.py`, `http_client.py`, `ci.yml`, or any existing test file.
+Auth, custom fixtures, and shared helpers are permitted only via shared
+modules in `src/` or `conftest.py` — never as per-API scaffolding that
+breaks the three-step contract. If the minimum drifts above three steps,
+flag as STRUCTURAL_FAILURE.
 
-## Rule 6 — Dependency Management
+## Rule 6 — Dependency Management (Dry-Run Before Install)
 
-- All packages beyond the 4 spec-required packages (`pytest`, `requests`, `allure-pytest`, `pyyaml`) must be documented with an inline comment explaining why they are needed
-- Version ranges must be verified against PyPI before committing — use `pip install --dry-run -r requirements.txt`
-- Upper bounds must be set on all packages to guard against major-version breakage
-- **Root cause of past failure:** `pytest-retry>=0.6,<1.0` — no such version range exists. Caught by CI, missed by Opus because `requirements.txt` was excluded from review prompt.
+Before any `pip install`, run `pip install --dry-run -r requirements.txt` and
+confirm no conflicts. Version ranges must be testable against Python 3.9–3.12.
+When adding a new dependency, verify the version range exists on PyPI before
+committing.
 
-## Rule 7 — Opus Review Completeness
+## Rule 7 — Opus Review Must Include requirements.txt
 
-Every Opus advisor review prompt MUST include:
-- All modified source files
-- `requirements.txt` (always — dependency issues are not caught by code review alone)
-- `config/environments.yaml` (always)
-- `.github/workflows/ci.yml` (when modified)
-- The full eval rubric (not abbreviated)
+Every Opus advisor review prompt must include the current contents of
+`requirements.txt` alongside the phase diff. Omitting it caused the
+`pytest-retry` version bug (>=0.6 didn't exist — caught only after CI failed).
 
-Incomplete review inputs are a framework violation — they caused real CI failures (see CLAUDE_LOG.md).
+## Rule 8 — Pre-Push Checklist (Non-Negotiable)
 
-## Rule 8 — Pre-Push Checklist (mandatory, automated)
+Before any `git push`:
+1. `pip install --dry-run -r requirements.txt` — no conflicts
+2. `pytest --collect-only -q` — import errors surface here
+3. `python -c "import yaml; yaml.safe_load(open('config/environments.yaml'))"` — YAML valid
+4. Company name scan (see Rule 12)
+5. `python -m mypy src/ tests/ --ignore-missing-imports` — no type errors
 
-Before every `git push`, the following must pass locally:
+## Rule 9 — No Direct Pushes to Main
 
-```bash
-# 1. Dependency install check (catches bad version ranges)
-pip install --dry-run -r requirements.txt
-
-# 2. Test discovery check (catches import errors, missing fixtures)
-pytest --collect-only -q
-
-# 3. CI YAML syntax check (catches workflow errors before GitHub rejects them)
-python3 -m py_compile .github/workflows/ci.yml 2>/dev/null || \
-  python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" && \
-  echo "CI YAML OK"
-```
-
-All three must exit 0 (or exit 5 for pytest — "no tests collected" is valid in early phases).
-
-## Rule 9 — Branch Protection
-
-- `main` is protected — no direct pushes ever
-- All changes arrive via PR, including hotfixes
-- Every PR must pass the `Quality Gate` CI job before merge
-- Force pushes to `main` are disabled
-- PRs must not be merged with known failures unless root cause is documented in the PR description and labeled `known-env-issue`
+`main` is branch-protected. All changes arrive via PR. Direct commits to main
+are forbidden. Hotfixes use `fix/<topic>` branches with a PR + Quality Gate.
 
 ## Rule 10 — Failure Categorization
 
-The Opus advisor and CI gate classify failures into three tiers:
+Every CI failure must be categorized before investigation:
+- `ENV_FAILURE` — network/API unavailability. Auto-retry up to 2 times with
+  60s backoff. After 2 retries, mark quarantined in CLAUDE_LOG.md and skip
+  review iterations. Do not consume iteration budget.
+- `QUALITY_FAILURE` — assertion failed, schema mismatch, wrong status code.
+- `STRUCTURAL_FAILURE` — import error, missing fixture, YAML parse error.
 
-| Category | Description | Action |
-|----------|-------------|--------|
-| `ENV_FAILURE` | API server down, DNS failure, HTTP 5xx from upstream | Fail fast — skip review iterations, label PR, document root cause |
-| `QUALITY_FAILURE` | Hardcoded values, missing coverage, wrong assertions, bad types | Loop — up to 3 iterations for test plans, 5 for code phases |
-| `STRUCTURAL_FAILURE` | Import errors, syntax errors, missing files, bad deps | Fail fast on iteration 1 — fix before re-review |
+Only QUALITY_FAILURE and STRUCTURAL_FAILURE consume review iterations.
 
 ## Rule 11 — Review Iteration Budgets
 
-| Artifact | Max Opus iterations | Pass threshold |
-|----------|--------------------|-|
-| Test plans | 3 | Score ≥ 80/100 |
-| Code phases | 5 | Score ≥ 80/100 |
-| CI/config files | 2 | Score ≥ 80/100 |
+- Test plans: max 3 Opus review iterations.
+- Code phases: max 5 Opus review iterations.
 
-If iteration cap is reached without passing: block merge, log in `CLAUDE_LOG.md`, require human decision.
+Escalation after budget exhausted: add a CLAUDE_LOG.md entry, tag the PR
+`needs-human-review`, and require user approval before merge proceeds.
+Infinite retry loops on ENV_FAILUREs are prohibited.
 
-## Rule 12 — Company Name Sanitization
+## Rule 12 — Company Name Sanitization Scan
 
-Before any push to a public repo, scan all non-spec files for company-specific names:
+Before every PR push, run a case-insensitive grep for company-specific terms
+across all tracked files. If found, fix before push — never push with them.
 
 ```bash
-grep -rin "panw\|palo alto\|palo-alto" \
-  --include="*.py" --include="*.md" --include="*.yaml" \
-  --include="*.yml" --include="*.json" --include="*.txt" \
-  . | grep -v "specs/" | grep -v ".git/"
+grep -ri "panw\|palo alto\|paloalto" . \
+  --include="*.py" --include="*.yaml" --include="*.yml" \
+  --include="*.md" --include="*.txt" --include="*.json"
 ```
 
-Must return zero matches. This is a hard gate — no exceptions.
+## Rule 13 — Opus Advisor Review Is a Mandatory Pre-Commit Gate
+
+Opus review is NOT optional and NOT triggered manually. It MUST run before
+`git add` for every phase. The sequence is:
+
+```
+generate → Opus review → address deviations → Opus re-review (if needed)
+         → only then: git add / git commit / git push
+```
+
+If Opus review is skipped, the phase is incomplete — do not commit.
+This applies to: test plans, code phases, README, CI config, and rules files.
+
+The advisor is invoked via `Agent(model="opus", prompt="...")`.
+
+Include in every review prompt:
+- Full diff of all changed files
+- Current `requirements.txt`
+- All rules files whose glob matches any changed file, plus framework-rules.md always
+- Phase rubric (pass_threshold, rules list)
+
+## Rule 14 — Secrets and Credentials
+
+API keys, tokens, and credentials must never appear in source files, logs, or
+CI output. Credentials are loaded exclusively from environment variables.
+
+```python
+# CORRECT
+api_key = os.environ["ANTHROPIC_API_KEY"]
+
+# FORBIDDEN
+api_key = "sk-ant-..."  # hardcoded
+```
+
+`.env` files are gitignored. The pre-push checklist (Rule 8) must be extended
+with a secret-pattern scan if new credential types are introduced.
+
+## Rule 15 — Logging Standards
+
+Use a named logger per module. Never log PII. Always use the `logging` module.
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+# CORRECT
+logger.warning("Parse error on line %d: %r", lineno, line)
+
+# FORBIDDEN
+print(f"Error: {line}")     # print in non-test code
+logger.debug(f"{user_email}")  # PII in logs
+```
+
+Log level guidance: DEBUG for trace/parse detail, INFO for phase milestones,
+WARNING for recoverable issues, ERROR for caught exceptions.
+
+## Rule 16 — Tests Encode the Spec Contract, Not Observed API Behavior
+
+Tests assert what the API **should** return per its specification, not what it
+currently returns. When an API deviates from the spec, the test must fail and
+the bug reporter captures it. Never widen an assertion to make a failing test
+pass — a passing test that accepts a wrong response is worse than a failing one.
+
+```python
+# CORRECT — asserts specified contract; bug is surfaced on deviation
+assert resp.status_code == 404, (
+    f"Expected 404 (resource not found), got {resp.status_code}. "
+    f"Spec deviation — report as bug."
+)
+
+# FORBIDDEN — hides the API bug
+assert resp.status_code in (400, 404)
+assert 400 <= resp.status_code < 500
+```
+
+The role of the QA engineer is to detect deviations and surface them as
+structured bug reports. High pass rates achieved by accepting incorrect
+responses provide false confidence.
+
+## Rule 17 — Always Test Against Real Endpoints
+
+Tests must always run against the real live API endpoints specified in
+`config/environments.yaml`. Mocking, stubbing, or intercepting HTTP responses
+in test files is forbidden.
+
+Rationale: mocked tests caught a prod migration failure only after it shipped
+(similar incident documented in Rule 6). If the live endpoint is unavailable,
+classify the failure as ENV_FAILURE (Rule 10) and retry — do not substitute a
+mock. Test doubles belong in unit tests of src/ internals only, never in
+`tests/test_*.py` files that verify API contract.
+
+```python
+# CORRECT — HttpClient hits the real endpoint
+resp = HttpClient(cfg["base_url"]).get("/name/germany")
+
+# FORBIDDEN — mocked response bypasses the real contract
+with responses.activate():
+    responses.add(responses.GET, url, json=[...], status=200)
+    resp = client.get("/name/germany")
+```
+
+## Rule 18 — Mandatory CI Monitoring After Every Push
+
+After every `git push` or PR creation, immediately monitor CI until all checks
+complete. Do NOT move to the next task while CI is running.
+
+```bash
+gh pr checks <PR_NUMBER> --watch   # blocks until all checks complete
+gh pr checks <PR_NUMBER>           # one-shot status read
+```
+
+For every failed check:
+1. Categorize the failure (ENV_FAILURE / QUALITY_FAILURE / STRUCTURAL_FAILURE)
+2. If QUALITY_FAILURE or STRUCTURAL_FAILURE: file a GitHub issue (Rule 19)
+3. Root-cause and fix before moving on
+4. Do NOT merge a PR with an unresolved non-ENV failure
+
+This rule exists because PRs were being pushed and abandoned without monitoring,
+leaving failures undiscovered until the user asked.
+
+## Rule 19 — Every CI Failure Must Become a GitHub Issue Before Merge
+
+When CI fails with QUALITY_FAILURE or STRUCTURAL_FAILURE:
+1. File a GitHub issue immediately using `gh issue create`
+2. Label: `bug` + `quality-failure` or `structural-failure`
+3. Title format: `[BUG] <test_name> — <one-line description>`
+4. Body: 5-section format (Title, Steps, Expected, Actual, Data)
+5. For known API bugs where test is correct: mark test `@pytest.mark.xfail(strict=True, reason="Known API bug #<issue>: ...")`
+6. PR cannot be merged until every failure is either fixed or has an open GitHub issue with `xfail` marker
+
+`xfail(strict=True)` means: test runs, expected to fail (bug documented), but if
+the API fixes the bug the test becomes `xpass` which alerts us to remove the marker.
+
+## Rule 20 — Session Start Protocol (Opus Project Audit)
+
+Every new session MUST begin with an Opus audit before any implementation work.
+This is the fix for Opus being a one-shot reviewer instead of an always-on overseer.
+
+The session start protocol:
+1. Read `CLAUDE_LOG.md` for current phase status
+2. Run `gh pr list` and `gh pr checks` on all open PRs
+3. Run `gh issue list --label bug` for unfiled known bugs
+4. Spawn `Agent(model="opus")` with: DELIVERABLES.md, open PR status, open issues,
+   CLAUDE_LOG.md, and ask: "What is the current project state vs spec? What must
+   happen next? What gaps or process violations are you seeing?"
+5. Act on Opus's direction before starting any new implementation
+
+This rule exists because Opus has no persistent state — it only knows what is
+in its prompt. The session start protocol ensures Opus always has full context
+before advising.
