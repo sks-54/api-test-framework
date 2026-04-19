@@ -25,7 +25,7 @@ class HttpResponse:
 class HttpClient:
     """Thread-safe HTTP client with retry logic and response-time tracking."""
 
-    _USER_AGENT = "panw-qa-framework/1.0"
+    _USER_AGENT = "api-test-framework/1.0"
     _MAX_RETRIES = 3
     _BACKOFF_FACTOR = 1  # seconds; urllib3 uses exponential: {backoff} * (2 ** (retry - 1))
     _RETRY_STATUS_CODES = frozenset({500, 502, 503, 504})
