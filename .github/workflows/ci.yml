@@ -2,9 +2,22 @@ name: CI
 
 on:
   push:
-    branches-ignore: ["main"]   # main only receives PR merges; PR trigger covers the verification
+    branches-ignore: ["main"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "specs/**"
+      - "ENHANCEMENTS.md"
+      - "DELIVERABLES.md"
+      - "CLAUDE_LOG.md"
+      - "BUG_REPORT.md"
+      - "TEST_PLAN.md"
   pull_request:
     branches: ["**"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "specs/**"
 
 # Cancel in-progress runs on same branch/PR to avoid wasted spend
 concurrency:
@@ -13,7 +26,7 @@ concurrency:
 
 jobs:
   # ── Stage 1: Smoke (ubuntu-latest + Python 3.11 only) ────────────────────────
-  # Cheapest possible signal. Full matrix only runs if this passes.
+  # Cheapest possible signal. Catches import errors and broken fixtures fast.
   smoke:
     name: Smoke (ubuntu / 3.11)
     runs-on: ubuntu-latest
@@ -41,7 +54,6 @@ jobs:
         run: |
           set -o pipefail
           pytest --collect-only -q 2>&1 | tee collect.log || code=$?
-          # Exit code 5 = no tests collected (valid during early phases)
           if [ "${code:-0}" -eq 5 ]; then
             echo "⚠️  No tests collected yet — skipping run (early phase)"
             exit 0
@@ -78,21 +90,60 @@ jobs:
           path: allure-results/
           retention-days: 7
 
-  # ── Stage 2: Full platform matrix (only if smoke passes) ─────────────────────
-  # ubuntu/3.11 excluded — already covered by smoke. Saves 1 runner.
-  matrix:
-    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+  # ── Stage 2: Cross-platform check (one windows + one mac, 3.11 only) ─────────
+  # Validates platform compatibility before burning the full matrix budget.
+  platform:
+    name: Platform check (${{ matrix.os }} / 3.11)
     needs: smoke
     if: success()
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
       matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4.2.3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/AppData/Local/pip/Cache
+          key: pip-${{ runner.os }}-3.11-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-3.11-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run full test suite
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -v --tb=short -p no:cacheprovider 2>&1 | tee test-output.log || code=$?
+          if [ "${code:-0}" -eq 5 ]; then echo "No tests collected"; exit 0; fi
+          tail -20 test-output.log
+          exit "${code:-0}"
+
+  # ── Stage 3: Full version matrix (all OS × Python 3.9–3.12) ─────────────────
+  # Runs only after both smoke AND platform checks pass.
+  # Excludes combos already covered by smoke (ubuntu/3.11) and platform (*/3.11).
+  matrix:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    needs: platform
+    if: success()
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
-        exclude:
-          - os: ubuntu-latest
-            python-version: "3.11"
+        python-version: ["3.9", "3.10", "3.12"]
 
     steps:
       - uses: actions/checkout@v4.2.2
@@ -123,10 +174,10 @@ jobs:
           tail -20 test-output.log
           exit "${code:-0}"
 
-  # ── Stage 3: Quality gate — blocks merge if any stage failed ─────────────────
+  # ── Stage 4: Quality gate — blocks merge if any stage failed ─────────────────
   gate:
     name: Quality Gate
-    needs: [smoke, matrix]
+    needs: [smoke, platform, matrix]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -134,9 +185,10 @@ jobs:
         shell: bash
         run: |
           smoke="${{ needs.smoke.result }}"
+          platform="${{ needs.platform.result }}"
           matrix="${{ needs.matrix.result }}"
-          echo "Smoke: $smoke | Matrix: $matrix"
-          if [[ "$smoke" != "success" || "$matrix" != "success" ]]; then
+          echo "Smoke: $smoke | Platform: $platform | Matrix: $matrix"
+          if [[ "$smoke" != "success" || "$platform" != "success" || "$matrix" != "success" ]]; then
             echo "❌ Quality gate FAILED"
             exit 1
           fi

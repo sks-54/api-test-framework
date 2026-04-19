@@ -66,7 +66,7 @@
 - [x] `.claude/skills/test-generator.md` — endpoint → full pytest test file
 - [x] `.claude/skills/validator-generator.md` — JSON response → typed validator class
 - [x] `.claude/skills/spec-parser.md` — spec doc → EndpointSpec extraction
-- [ ] `CLAUDE_LOG.md` — parallel agents documented, decisions, corrections, rules impact
+- [x] `CLAUDE_LOG.md` — parallel agents documented, decisions, corrections, rules impact
 - [x] `scripts/advisor_review.py` — Opus advisor stub (SDK pattern, no key required)
 
 ## Extensibility
@@ -96,3 +96,9 @@
 | 2026-04-19 | Phase 3 | xfail markers for BUG-001/002/003 silently dropped during rebase conflict resolution | Re-added manually; added Rule 23 (post-rebase verification) + `scripts/verify_bug_markers.py` pre-push guard |
 | 2026-04-19 | Phase 3 | TC-W-010 used range assertion `in (200, 400)` violating Rule 16 | Fixed to `== 200` + WeatherValidator schema check |
 | 2026-04-19 | Phase 3 | 4 boundary/negative weather tests missing `@pytest.mark.flaky(reruns=2)` | Added flaky markers to TC-W-004, TC-W-005, TC-W-009, TC-W-010 |
+| 2026-04-19 | Phase 5 | CI triggered on doc-only commits (DELIVERABLES.md, CLAUDE_LOG.md) — wasted runner budget | Added `paths-ignore` to push trigger; doc files excluded |
+| 2026-04-19 | Phase 5 | CI had 2-stage pipeline (smoke → matrix) instead of 3-stage (smoke → platform → matrix) | Added platform stage: windows/3.11 + macos/3.11 before full version matrix |
+| 2026-04-19 | Phase 3 | TC-W-003 had widened assertion `400 <= status < 500` violating Rule 16 | Fixed to `== 400` (confirmed API returns 400 for lat=999 via curl) |
+| 2026-04-19 | Phase 3 | `pytest-retry` used instead of `pytest-rerunfailures` — reruns=/reruns_delay= kwargs silently ignored | Swapped to `pytest-rerunfailures>=12.0,<16.0` in requirements.txt |
+| 2026-04-19 | Phase 3 | TC-W-004 had both `@pytest.mark.flaky` and `@pytest.mark.xfail(strict=True)` — incoherent combination | Removed flaky from TC-W-004; xfail handles the known-bug case |
+| 2026-04-19 | Framework | Changes discussed in conversation not written to files until next session | Added Rule 25 to framework-rules.md and CLAUDE.md |

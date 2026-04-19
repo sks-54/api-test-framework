@@ -95,8 +95,8 @@ def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
             "/forecast",
             params={"latitude": 999, "longitude": 999, "hourly": HOURLY_PARAMS},
         )
-    assert 400 <= resp.status_code < 500, (
-        f"Expected 4xx for invalid coords, got {resp.status_code}"
+    assert resp.status_code == 400, (
+        f"Expected 400 for out-of-range coords (lat/lon=999), got {resp.status_code}"
     )
 
 
@@ -106,7 +106,6 @@ def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
 
 @allure.title("TC-W-004: Missing latitude/longitude parameters returns 400")
 @pytest.mark.negative
-@pytest.mark.flaky(reruns=2, reruns_delay=2)
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,

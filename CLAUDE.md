@@ -40,6 +40,10 @@ find and report bugs, not to make tests pass.
 Run all 6 steps in Rule 8. Step 6 (`python scripts/verify_bug_markers.py`) is the guard
 that catches xfail markers silently dropped during rebases or merges. Non-zero exit = do not push.
 
+### Acknowledged changes must be committed immediately (Rule 25):
+Any change agreed upon in conversation must be written to a file before the next commit.
+"I'll do that" is not done. Only committed changes count.
+
 ## Pull Main After Every Merge
 
 After any PR merges to main, immediately run:
@@ -66,8 +70,8 @@ When raising a new PR or after any PR merges:
 - `config/environments.yaml` — single source of truth for all thresholds and base URLs
 - `CLAUDE_LOG.md` — phase status, known bugs, process violations, Opus review log
 - `DELIVERABLES.md` — spec requirements tracker (update checkmarks as items complete)
-- `.claude/rules/framework-rules.md` — 24 rules governing this framework
-- `.github/workflows/ci.yml` — push trigger ignores main (no duplicate runs)
+- `.claude/rules/framework-rules.md` — 25 rules governing this framework
+- `.github/workflows/ci.yml` — push trigger ignores main and doc-only changes; 3-stage pipeline (smoke → platform → matrix)
 
 ## What "done" means for a test
 A test is done when it:

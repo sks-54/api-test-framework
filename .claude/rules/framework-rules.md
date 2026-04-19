@@ -361,3 +361,23 @@ Requirements:
 
 When adding a new bug entry, always include the curl command before filing the GitHub issue —
 confirm the curl reproduces the bug locally first, then add both to BUG_REPORT.md and the issue body.
+
+## Rule 25 — Acknowledged Changes Are Not Complete Until Written to a File
+
+A change discussed or agreed upon in conversation is **not done** until it exists in a committed file.
+There is no "I'll do that" — only "I did that (see commit X)."
+
+This applies to:
+- Rule changes (framework-rules.md, testing-standards.md, etc.)
+- Protocol changes (CLAUDE.md, CI config)
+- Bug report updates (BUG_REPORT.md, CLAUDE_LOG.md)
+- Deliverable status changes (DELIVERABLES.md)
+
+**Pattern that violates this rule:** A design decision is made in conversation (e.g., CI should skip doc-only pushes), acknowledged verbally, then omitted from the actual file. The commit goes out with the old behavior. Subsequent Opus reviews find the discrepancy.
+
+**Enforcement:** After any verbal agreement on a change, the implementer must immediately:
+1. Write the change to the appropriate file
+2. Include it in the next commit
+3. Reference the change in the commit message
+
+No partial acknowledgements. If it wasn't committed, it didn't happen.
