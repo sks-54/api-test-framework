@@ -165,7 +165,7 @@ class BugReporterPlugin:
         allure.attach(
             body=markdown_content,
             name=f"Bug Report — {item.name}",
-            attachment_type=allure.attachment_type.MARKDOWN,
+            attachment_type=allure.attachment_type.TEXT,
         )
 
 
