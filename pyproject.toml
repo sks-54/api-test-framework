@@ -25,6 +25,7 @@ test = [
 [project.scripts]
 apitf-parse = "apitf.cli:cmd_parse"
 apitf-scaffold = "apitf.cli:cmd_scaffold"
+apitf-run = "apitf.cli:cmd_run"
 
 [tool.setuptools.packages.find]
 where = ["."]

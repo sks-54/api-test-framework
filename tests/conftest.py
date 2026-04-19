@@ -78,19 +78,19 @@ def pytest_collection_modifyitems(
     if selected_env is None:
         return  # no filtering — run everything
 
+    all_env_names = set(_load_env_names())
+    other_envs = all_env_names - {selected_env}
+
     for item in items:
-        # Skip countries tests when --env weather (and vice versa)
-        if selected_env == "weather" and item.get_closest_marker("countries"):
-            item.add_marker(pytest.mark.skip(
-                reason=(
-                    "--env weather selected: countries tests are environment-scoped and only "
-                    "run under --env countries. Use `pytest` (no --env flag) to run all environments."
-                )
-            ))
-        elif selected_env == "countries" and item.get_closest_marker("weather"):
-            item.add_marker(pytest.mark.skip(
-                reason=(
-                    "--env countries selected: weather tests are environment-scoped and only "
-                    "run under --env weather. Use `pytest` (no --env flag) to run all environments."
-                )
-            ))
+        # Skip any test whose env marker doesn't match the selected --env.
+        # Works for all environments without hardcoding pairwise checks.
+        for other in other_envs:
+            if item.get_closest_marker(other):
+                item.add_marker(pytest.mark.skip(
+                    reason=(
+                        f"--env {selected_env} selected: {other} tests are environment-scoped "
+                        f"and only run under --env {other}. "
+                        f"Use `pytest` (no --env flag) to run all environments."
+                    )
+                ))
+                break

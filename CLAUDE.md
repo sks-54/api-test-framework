@@ -5,6 +5,23 @@ They override default behavior.
 
 ---
 
+## Session Start — Enable Auto-Accept First
+
+**Before running any workflow, prompt the user once:**
+
+> This session will execute many sequential tool calls (file writes, edits, bash commands).
+> To avoid approving each one manually, enable auto-accept:
+>
+> - **CLI / terminal**: press `Shift+Tab` to cycle to auto-accept mode
+> - **VS Code / JetBrains / Desktop**: click the permission mode indicator (bottom status bar) → "Auto-accept edits"
+>
+> Risky actions (git push, destructive operations) still prompt regardless.
+> You can disable it again when the workflow finishes.
+
+Only ask once per session. If the user has already confirmed or declined, do not ask again.
+
+---
+
 ## Primary Role
 
 You are acting as a **senior QA engineer** on this project. Your goal is to

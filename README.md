@@ -1551,6 +1551,40 @@ The skill does three things automatically:
 - The nearest `https://` URL preceding each method keyword
 - The environment name inferred from the hostname (`restcountries` → `countries`, `open-meteo` → `weather`, unknown → hostname slug)
 - The path extracted from the URL (everything after the third `/`)
+- Response fields from lines matching `Fields: field1, field2, ...` or `Response fields: ...` within 400 characters after the method keyword
+
+**Writing a spec PDF the parser understands:**
+
+The PDF parser uses heuristic text extraction — it is not a structured parser. The reference PDFs (`specs/home_test.PDF`) do not contain `Fields:` lines, so `response_fields` is empty for the built-in environments; fields are populated either by the `Fields:` convention below (for new specs) or by the `--sample` flag (for any spec). To get reliable field extraction from a new spec PDF, format each endpoint block like this:
+
+```
+GET https://api.example.com/v1/items/{id}
+Fields: id, name, value, active, created_at
+
+POST https://api.example.com/v1/items
+Fields: id, name, value
+```
+
+Rules for parser-friendly PDFs:
+1. **Full URLs per endpoint** — every method line must have the complete `https://` URL on the same page, not split across pages
+2. **`Fields:` line immediately after** — place `Fields: field1, field2, ...` within the next 400 characters after the method keyword; comma-separated, one line
+3. **One endpoint per block** — separate endpoint blocks with a blank line or heading
+4. **No URL wrapping** — URLs must not wrap across lines; use a wide enough column in your PDF authoring tool
+
+**CLI path (alternative to Claude Code skills):**
+
+```bash
+# Parse and inspect — shows extracted endpoints + fields
+apitf-parse specs/myapi_spec.pdf
+
+# Scaffold validator + test stub (uses spec fields only)
+apitf-scaffold specs/myapi_spec.pdf --env myapi --out /tmp/myapi-scaffold/
+
+# Scaffold + auto-discover fields by hitting the live API
+apitf-scaffold specs/myapi_spec.pdf --env myapi --sample --out /tmp/myapi-scaffold/
+```
+
+The `--sample` flag hits `probe_path` on the live API during scaffolding, merges any discovered top-level fields with the spec fields, and populates `REQUIRED_FIELDS` in the generated validator automatically. Use it when you trust the live API's current field set matches the spec.
 
 ### Step 3 — Set Thresholds in environments.yaml
 

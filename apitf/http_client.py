@@ -54,12 +54,16 @@ class HttpClient:
     def get(self, path: str, params: dict[str, Any] | None = None) -> HttpResponse:
         return self.request("GET", path, params=params)
 
+    def post(self, path: str, json: Any = None, params: dict[str, Any] | None = None) -> HttpResponse:
+        return self.request("POST", path, params=params, json=json)
+
     def request(
         self,
         method: str,
         path: str,
         params: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
+        json: Any = None,
     ) -> HttpResponse:
         url = f"{self._base_url}{path}"
         logger.debug("%s %s params=%r", method, url, params)
@@ -69,6 +73,7 @@ class HttpClient:
             url,
             params=params,
             headers=extra_headers,
+            json=json,
             timeout=self._timeout,
         )
         elapsed_ms = (time.monotonic() - start) * 1000
