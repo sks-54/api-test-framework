@@ -83,7 +83,7 @@
 - [x] GitHub repo: `sks-54/api-test-framework` (new, public)
 - [x] Phased PRs (one per phase, each Opus-reviewed before merge)
 - [x] `README.md` with setup, run instructions, 5 Mermaid architecture diagrams, design decisions
-- [ ] Tagged `v1.0.0` once all items above are checked
+- [x] Tagged `v1.0.0` once all items above are checked
 - [x] `ENHANCEMENTS.md` tracking post-v1.0.0 roadmap
 
 ---
