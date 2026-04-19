@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apitf"
-version = "1.0.0"
+version = "2.0.0"
 description = "Multi-environment API test framework — REST Countries + Open-Meteo"
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,6 +21,10 @@ test = [
     "allure-pytest>=2.13,<3.0",
     "pytest-rerunfailures>=12.0,<16.0",
 ]
+
+[project.scripts]
+apitf-parse = "apitf.cli:cmd_parse"
+apitf-scaffold = "apitf.cli:cmd_scaffold"
 
 [tool.setuptools.packages.find]
 where = ["."]
