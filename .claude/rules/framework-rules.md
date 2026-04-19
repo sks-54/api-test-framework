@@ -305,3 +305,18 @@ assert resp.response_time_ms < max_ms, (
 # FORBIDDEN — hiding the SLA
 max_ms = 10_000  # raised to "fix" the test
 ```
+
+## Rule 22 — Pre-Commit Assertion Integrity Check
+
+Before every `git add` on test files, scan for forbidden assertion patterns that
+hide spec deviations:
+
+```bash
+grep -n "status_code in (" tests/test_*.py && echo "FORBIDDEN: widened assertion"
+grep -n ">= [0-9].*<" tests/test_*.py | grep "status_code" && echo "FORBIDDEN: range assertion on status"
+```
+
+If either grep returns a match, it is a pre-commit gate failure. Fix by:
+1. Asserting the exact expected status code
+2. Filing a GitHub issue for the spec deviation
+3. Marking the test `xfail(strict=True, raises=AssertionError, reason="Bug #<issue>: ...")`
