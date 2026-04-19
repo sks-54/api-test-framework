@@ -33,8 +33,9 @@ find and report bugs, not to make tests pass.
 1. Read CLAUDE_LOG.md for current phase status
 2. Run `gh pr list` and `gh pr checks` on all open PRs
 3. Run `gh issue list --label bug` for unfiled known bugs
-4. Spawn Opus audit — ask: "Current state vs spec? Gaps? What must happen next?" (Rule 20)
-5. Act on Opus's direction before starting any new implementation
+4. Check latest CI run for `Node.js deprecated` warnings — if present, update action versions immediately (Rule 26) before anything else
+5. Spawn Opus audit — ask: "Current state vs spec? Gaps? What must happen next?" (Rule 20)
+6. Act on Opus's direction before starting any new implementation
 
 ### Before every push (mandatory gate — Rule 8):
 Run all 6 steps in Rule 8. Step 6 (`python scripts/verify_bug_markers.py`) is the guard
@@ -70,7 +71,7 @@ When raising a new PR or after any PR merges:
 - `config/environments.yaml` — single source of truth for all thresholds and base URLs
 - `CLAUDE_LOG.md` — phase status, known bugs, process violations, Opus review log
 - `DELIVERABLES.md` — spec requirements tracker (update checkmarks as items complete)
-- `.claude/rules/framework-rules.md` — 25 rules governing this framework
+- `.claude/rules/framework-rules.md` — 26 rules governing this framework
 - `.github/workflows/ci.yml` — push trigger ignores main and doc-only changes; 3-stage pipeline (smoke → platform → matrix)
 
 ## What "done" means for a test

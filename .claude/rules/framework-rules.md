@@ -381,3 +381,41 @@ This applies to:
 3. Reference the change in the commit message
 
 No partial acknowledgements. If it wasn't committed, it didn't happen.
+
+## Rule 26 — Keep GitHub Actions on the Current Node.js Runtime
+
+GitHub Actions deprecates Node.js runtimes on a published schedule. Running stale action
+versions produces `##[warning]Node.js XX actions are deprecated` in every CI log and will
+become hard failures when GitHub removes the old runtime from runners.
+
+**Protocol:**
+1. At session start, if any CI run contains a Node.js deprecation warning, update the
+   affected actions before doing any other work.
+2. Pin actions to the latest major version tag that ships the current Node.js runtime.
+   Check latest versions with:
+   ```bash
+   gh api repos/actions/checkout/releases/latest --jq '.tag_name'
+   gh api repos/actions/setup-python/releases/latest --jq '.tag_name'
+   gh api repos/actions/cache/releases/latest --jq '.tag_name'
+   gh api repos/actions/upload-artifact/releases/latest --jq '.tag_name'
+   ```
+3. Update `.github/workflows/ci.yml` immediately — do not defer.
+4. Add the version bump to the same commit as any other CI change in progress.
+
+**Why this matters:** The warning is a deadline, not a suggestion. GitHub publishes a
+removal date. If the runner removes Node.js 20 and actions still pin to v4/v5 Node.js 20
+builds, CI silently breaks on all branches simultaneously.
+
+```yaml
+# CORRECT — current Node.js 24-compatible versions (as of 2026-04-19)
+uses: actions/checkout@v6.0.2
+uses: actions/setup-python@v6.2.0
+uses: actions/cache@v5.0.5
+uses: actions/upload-artifact@v7.0.1
+
+# STALE — triggers Node.js 20 deprecation warning
+uses: actions/checkout@v4.2.2
+uses: actions/setup-python@v5.5.0
+uses: actions/cache@v4.2.3
+uses: actions/upload-artifact@v4.6.2
+```

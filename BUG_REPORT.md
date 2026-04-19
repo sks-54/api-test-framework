@@ -163,6 +163,38 @@ time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-90&longitude=0&ho
 
 ---
 
+### BUG-005
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-005 |
+| **Issue** | https://github.com/sks-54/api-test-framework/issues/9 |
+| **Test** | TC-W-007 |
+| **Severity** | P1 |
+| **Category** | SLA_VIOLATION |
+| **Status** | OPEN |
+| **Title** | Open-Meteo `/forecast` times out from CI runners before response time can be measured |
+
+**curl (measures response time):**
+```bash
+# Sydney — city observed failing in CI
+time curl -s "https://api.open-meteo.com/v1/forecast?latitude=-33.8688&longitude=151.2093&hourly=temperature_2m&forecast_days=1" \
+  | python3 -m json.tool
+```
+
+**Expected:** Response within `max_response_time` defined in `config/environments.yaml`
+
+**Actual:** `ConnectionError: Max retries exceeded — ReadTimeoutError (read timeout=30)` from all 3 urllib3 retries. Performance assertion is never reached.
+
+**Data:**
+- Failing test: `test_forecast_performance[Sydney]` (TC-W-007) — all 5 cities at risk
+- CI run: 24625873422
+- Error: `ReadTimeoutError: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out`
+- Root cause: Same as BUG-004 — Open-Meteo blocks/throttles GitHub Actions runner IPs
+- Per Rule 21: consistent failure across ALL reruns = SLA_VIOLATION
+
+---
+
 ## Resolved Bugs
 
 _None yet._
@@ -174,6 +206,7 @@ _None yet._
 | Bug | Endpoint | Threshold | Observed | CI Runs |
 |-----|----------|-----------|----------|---------|
 | BUG-004 | `api.open-meteo.com/v1/forecast` | `max_response_time` (YAML) | timeout all 3 attempts | 24625148611, 24625149041 |
+| BUG-005 | `api.open-meteo.com/v1/forecast` | `max_response_time` (YAML) | timeout before perf assertion | 24625873422 |
 
 ---
 

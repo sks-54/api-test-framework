@@ -27,6 +27,7 @@ All entries are append-only. Resolved entries are marked but never deleted.
 | BUG-002 | TC-W-004 | P2 | QUALITY_FAILURE | OPEN | `/forecast` without lat/lon returns 200 silently |
 | BUG-003 | TC-C-021 | P3 | QUALITY_FAILURE | OPEN | 5 territories return `population=0` |
 | BUG-004 | TC-W-004, TC-W-010 | P1 | SLA_VIOLATION | OPEN | Open-Meteo `/forecast` times out in CI consistently |
+| BUG-005 | TC-W-007 | P1 | SLA_VIOLATION | OPEN | Open-Meteo `/forecast` times out before perf assertion can run |
 
 All bugs have filed GitHub issues. See `BUG_REPORT.md` for curl reproduction commands.
 

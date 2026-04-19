@@ -32,15 +32,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5.5.0
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.11"
 
       - name: Cache pip
-        uses: actions/cache@v4.2.3
+        uses: actions/cache@v5.0.5
         with:
           path: ~/.cache/pip
           key: pip-ubuntu-3.11-${{ hashFiles('requirements.txt') }}
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload Allure results
         if: always()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: allure-results-ubuntu-311
           path: allure-results/
@@ -103,15 +103,15 @@ jobs:
         os: [windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5.5.0
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.11"
 
       - name: Cache pip
-        uses: actions/cache@v4.2.3
+        uses: actions/cache@v5.0.5
         with:
           path: |
             ~/.cache/pip
@@ -146,15 +146,15 @@ jobs:
         python-version: ["3.9", "3.10", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5.5.0
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache pip
-        uses: actions/cache@v4.2.3
+        uses: actions/cache@v5.0.5
         with:
           path: |
             ~/.cache/pip
