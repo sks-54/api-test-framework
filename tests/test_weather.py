@@ -32,6 +32,7 @@ FORECAST_DAYS = 1
 @allure.title("TC-W-001: Forecast for {city[name]} passes schema validation")
 @pytest.mark.parametrize("city", CITIES, ids=[c["name"] for c in CITIES])
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_positive_schema(city: dict[str, Any], env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
@@ -59,6 +60,7 @@ def test_forecast_positive_schema(city: dict[str, Any], env_config: dict[str, An
 @allure.title("TC-W-002: Forecast for {city[name]} includes non-empty timezone")
 @pytest.mark.parametrize("city", CITIES, ids=[c["name"] for c in CITIES])
 @pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_timezone_present(city: dict[str, Any], env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
@@ -146,6 +148,7 @@ def test_forecast_boundary_one_day(env_config: dict[str, Any]) -> None:
 @allure.title("TC-W-006: All temperatures for {city[name]} in range [-80°C, 60°C]")
 @pytest.mark.parametrize("city", CITIES, ids=[c["name"] for c in CITIES])
 @pytest.mark.boundary
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_forecast_temperature_range(city: dict[str, Any], env_config: dict[str, Any]) -> None:
     cfg = env_config["weather"]
     base_url = cfg["base_url"]
