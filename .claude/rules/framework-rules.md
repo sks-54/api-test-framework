@@ -86,8 +86,32 @@ Before any `git push`:
 5. `python -m mypy src/ tests/ --ignore-missing-imports` — no type errors
 6. `python scripts/verify_bug_markers.py` — every open bug in BUG_REPORT.md has a matching `@pytest.mark.xfail`
 
-Step 6 is the guard against xfail markers being silently dropped during rebases or merges.
-If it exits non-zero, do not push — add the missing xfail before proceeding.
+Step 6 is **machine-enforced** by the git pre-push hook (installed via `bash scripts/setup_hooks.sh`).
+The hook blocks the push if it exits non-zero. This cannot be forgotten.
+
+After `git push`, immediately run:
+```bash
+gh run watch $(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+```
+This blocks the terminal until CI completes and exits non-zero on failure (Rule 18).
+Do not switch tasks while this is running.
+
+## Rule 8a — Enforcement Tiers
+
+Rules in this framework fall into three tiers:
+
+| Tier | Enforcement | Examples |
+|------|-------------|---------|
+| **Hard** | Machine blocks the action — cannot proceed without fixing | Rule 8 Step 6 (pre-push hook), Rule 19 (branch protection blocks merge) |
+| **Scripted** | Script runs but requires human to invoke | Rules 1/16 (assertion grep), Rule 12 (company name scan) |
+| **Behavioural** | Documentation only — relies on discipline | Rule 18 (CI monitoring), Rule 20 (Opus audit at session start) |
+
+**Goal: push every rule up the tier ladder.** A behavioural rule that keeps being violated
+must become scripted. A scripted rule that keeps being skipped must become hard.
+
+The git pre-push hook exists because Rule 8 Step 6 was being skipped during rebases.
+If Rule 18 (CI monitoring) is violated again, the next step is a post-push wrapper script
+that calls `gh run watch` automatically after every push.
 
 ## Rule 9 — No Direct Pushes to Main
 
