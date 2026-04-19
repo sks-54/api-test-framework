@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 ADVISOR_MODEL: str = "claude-opus-4-7"
 MAX_RESPONSE_TOKENS: int = 2048
+REFLECTOR_MAX_ITER: int = 3  # max Opus→correct→re-score rounds (test files and test plans)
 
 ReviewResult = dict[str, Any]
 
@@ -280,6 +281,25 @@ Return JSON only — no markdown fences, no prose:
     return result
 
 
+def _trim_pytest_output(output: str, char_limit: int = 6000) -> str:
+    """Trim pytest output without cutting inside a failure block or line.
+
+    Aligns cuts to pytest block separators (lines of underscores/equals) so Opus
+    never receives a traceback that starts mid-function or mid-class.
+    Falls back to a newline-aligned tail slice if no block boundaries fit.
+    """
+    if len(output) <= char_limit:
+        return output
+    block_starts = [m.start() for m in re.finditer(r"^[_=]{10,}", output, re.MULTILINE)]
+    for start in reversed(block_starts):
+        candidate = output[start:]
+        if len(candidate) <= char_limit:
+            return candidate
+    tail = output[-char_limit:]
+    newline = tail.find("\n")
+    return tail[newline + 1:] if newline != -1 else tail
+
+
 def _reflect_test_file(
     env: str,
     test_file: Path,
@@ -313,7 +333,7 @@ def _reflect_test_file(
 
 ## Pytest run output
 ```
-{pytest_output[-3000:]}
+{_trim_pytest_output(pytest_output)}
 ```
 
 ## Scoring rubric (pass threshold = 70)
@@ -545,7 +565,6 @@ def eval_loop(
             break
 
     # ── Reflector + correction feedback loop ───────────────────────────────
-    REFLECTOR_MAX_ITER = 2  # max rounds of Opus → apply corrections → re-score
     for reflector_round in range(1, REFLECTOR_MAX_ITER + 2):
         print(f"\n[reflector] ── Opus reflector review (round {reflector_round}) ──────────────")
         review = _reflect_test_file(env, test_file, last_output, reflector_model, api_key=resolved_key)
@@ -750,7 +769,7 @@ def reflect_test_plan_loop(
     model: str,
     reflector_model: str = ADVISOR_MODEL,
     api_key: str | None = None,
-    max_iter: int = 2,
+    max_iter: int = REFLECTOR_MAX_ITER,
 ) -> None:
     """Structural check → Opus review → AI correction loop for the test plan markdown.
 
