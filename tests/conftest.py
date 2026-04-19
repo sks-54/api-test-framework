@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+pytest_plugins = ["src.reporters.bug_reporter"]
+
 from pathlib import Path
 from typing import Any
 
