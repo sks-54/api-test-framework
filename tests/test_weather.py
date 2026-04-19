@@ -13,6 +13,7 @@ import pytest
 import requests
 
 from src.http_client import HttpClient
+from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 from src.validators.weather_validator import WeatherValidator
 
 pytestmark = [pytest.mark.weather, allure.suite("weather")]
@@ -110,9 +111,9 @@ def test_forecast_negative_invalid_coords(env_config: dict[str, Any]) -> None:
 @pytest.mark.negative
 @pytest.mark.xfail(
     strict=False,
-    raises=(AssertionError, requests.exceptions.ConnectionError),
+    raises=SLA_FAILURE_EXCEPTIONS,
     reason="Known API bugs BUG-002 / Issue #6 (quality: /forecast returns 200 without lat/lon) "
-           "and BUG-004 / Issue #8 (SLA: Open-Meteo times out in CI — ConnectionError). "
+           "and BUG-004 / Issue #8 (SLA: Open-Meteo times out in CI). "
            "strict=False: xpass is expected once BUG-002 is fixed by the API.",
 )
 def test_forecast_missing_params_returns_4xx(env_config: dict[str, Any]) -> None:
@@ -187,10 +188,9 @@ def test_forecast_temperature_range(city: dict[str, Any], env_config: dict[str, 
 @pytest.mark.performance
 @pytest.mark.xfail(
     strict=False,
-    raises=(AssertionError, requests.exceptions.ConnectionError),
+    raises=SLA_FAILURE_EXCEPTIONS,
     reason="Known API bug BUG-005 / Issue #9: Open-Meteo SLA_VIOLATION from CI runners — "
-           "two failure modes: (1) hard timeout → ConnectionError (Linux/mac); "
-           "(2) connection reset + retry → slow 200 → AssertionError on response_time_ms (Windows). "
+           "no response → ConnectionError, or slow response → AssertionError on response_time_ms. "
            "Same root cause: Open-Meteo throttles/resets GitHub Actions runner IPs.",
 )
 def test_forecast_performance(city: dict[str, Any], env_config: dict[str, Any]) -> None:

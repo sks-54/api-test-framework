@@ -310,7 +310,57 @@ assert resp.response_time_ms < max_ms, (
 max_ms = 10_000  # raised to "fix" the test
 ```
 
-## Rule 22 — Pre-Commit Assertion Integrity Check
+## Rule 22 — SLA xfail Markers Must Cover All Failure Modes, Not the Platform-Specific Exception
+
+When an SLA_VIOLATION test is marked `xfail`, the `raises=` tuple must cover **both** ways
+the test can fail — regardless of which platform or OS triggered the first observation:
+
+```python
+# CORRECT — import the adapter; never inline the tuple
+from src.sla_exceptions import SLA_FAILURE_EXCEPTIONS
+
+@pytest.mark.xfail(
+    strict=False,
+    raises=SLA_FAILURE_EXCEPTIONS,
+    reason="BUG-NNN / Issue #N: <endpoint> SLA_VIOLATION — "
+           "no response → ConnectionError, or slow response → AssertionError on response_time_ms.",
+)
+
+# FORBIDDEN — inline tuple: platform-specific and requires hunting every xfail if a new case appears
+@pytest.mark.xfail(
+    strict=False,
+    raises=(AssertionError, requests.exceptions.ConnectionError),  # don't inline this
+    reason="...",
+)
+
+# FORBIDDEN — incomplete: only catches Linux hard-timeout, misses Windows reset-retry path
+@pytest.mark.xfail(
+    strict=False,
+    raises=requests.exceptions.ConnectionError,
+    reason="...",
+)
+```
+
+`SLA_FAILURE_EXCEPTIONS` is defined in `src/sla_exceptions.py` and is the single place to
+update if a new exception type is ever needed. The module documents why the two types are
+exhaustive so future maintainers don't second-guess the design.
+
+**Why both are needed:**
+
+| Platform | TCP failure mode | urllib3 outcome | Exception reaching pytest |
+|----------|-----------------|-----------------|--------------------------|
+| Linux/mac | Read timeout (30s) | All retries exhaust, no response | `ConnectionError` |
+| Windows | `ConnectionResetError(10054)` — server closes connection mid-attempt | Retries succeed but accumulate 30s+ | `AssertionError` (slow 200) |
+
+Both are the same SLA violation. Writing `raises=ConnectionError` models Linux's exception,
+not the underlying cause. Writing `raises=(AssertionError, ConnectionError)` models the
+**intent**: this test may fail because the API is too slow, in whatever way that manifests.
+
+**Adding a new platform never requires updating xfail markers** if they are written this way.
+The two exception types are exhaustive for any HTTP client failure: either you get no response
+(any flavour of `ConnectionError`), or you get a slow one (`AssertionError` on the threshold).
+
+## Rule 23 — Pre-Commit Assertion Integrity Check
 
 Before every `git add` on test files, scan for forbidden assertion patterns that
 hide spec deviations:
