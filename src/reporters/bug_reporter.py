@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import platform
+import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,6 +94,15 @@ def _request_metadata(item: Item) -> dict[str, str]:
     }
 
 
+def _platform_info() -> dict[str, str]:
+    return {
+        "os": platform.system(),
+        "os_version": platform.version(),
+        "python_version": sys.version.split()[0],
+        "machine": platform.machine(),
+    }
+
+
 def _build_markdown(
     *,
     test_name: str,
@@ -104,11 +115,16 @@ def _build_markdown(
     expected: str,
     actual: str,
 ) -> str:
+    plat = _platform_info()
     return (
         f"# [FAIL] {test_name} — {short_description}\n\n"
         f"**Date:** {timestamp} UTC\n"
         f"**Environment:** {env_name}\n"
         f"**Category:** {category}\n\n"
+        "## Platform\n"
+        f"- **OS:** {plat['os']} {plat['os_version']}\n"
+        f"- **Python:** {plat['python_version']}\n"
+        f"- **Architecture:** {plat['machine']}\n\n"
         "## Steps to Reproduce\n"
         f"1. Command: `pytest {node_id}`\n"
         f"2. Request: {meta['method']} {meta['url']}\n"

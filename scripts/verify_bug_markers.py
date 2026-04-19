@@ -126,6 +126,64 @@ def _reason_covers_sla(reason: str, registry: dict[str, dict[str, str]]) -> bool
     return False
 
 
+def _load_flaky_violations() -> list[str]:
+    """
+    Return a list of error strings for test functions that:
+    - Use HttpClient (make a live API call)
+    - Have neither @pytest.mark.flaky nor @pytest.mark.xfail
+    - Are not HTTPS-enforcement tests (no live call)
+
+    Exempt: tests where the only HttpClient usage is inside pytest.raises(ValueError)
+    (these never connect to a remote server — they test the constructor's guard).
+    """
+    violations: list[str] = []
+
+    for test_file in sorted(TESTS_DIR.glob("test_*.py")):
+        try:
+            source = test_file.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            print(f"[ERROR] Syntax error in {test_file}: {exc}")
+            sys.exit(1)
+
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+
+            # Check decorators
+            has_flaky = any(
+                (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == "flaky")
+                or (isinstance(d, ast.Attribute) and d.attr == "flaky")
+                for d in node.decorator_list
+            )
+            has_xfail = any(
+                (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == "xfail")
+                for d in node.decorator_list
+            )
+            if has_flaky or has_xfail:
+                continue
+
+            # Check body for HttpClient usage
+            func_src = ast.get_source_segment(source, node) or ""
+            if "HttpClient" not in func_src:
+                continue
+
+            # Exempt: HTTPS enforcement tests — HttpClient is only called to test
+            # the ValueError guard (http:// constructor). They never make live requests:
+            # the constructor raises before any socket is opened.
+            # Heuristic: has pytest.raises(ValueError) AND no actual HTTP method calls.
+            if "pytest.raises(ValueError" in func_src and "client.get(" not in func_src:
+                continue
+
+            violations.append(
+                f"  [MISSING FLAKY] {test_file.name}::{node.name} — "
+                "uses HttpClient but has no @pytest.mark.flaky(reruns=2, reruns_delay=2) "
+                "(Testing Standards Rule 10)"
+            )
+
+    return violations
+
+
 def main() -> int:
     if not BUG_REPORT.exists():
         print("[ERROR] BUG_REPORT.md not found — cannot verify bug markers.")
@@ -213,6 +271,19 @@ def main() -> int:
             "      raises=(AssertionError, requests.exceptions.ConnectionError),\n"
             '      reason="Known API bugs BUG-NNN (quality) and BUG-MMM (SLA): ...",\n'
             "  )"
+        )
+        return 1
+
+    flaky_violations = _load_flaky_violations()
+    if flaky_violations:
+        print("\nMISSING FLAKY MARKERS — fix before pushing (Testing Standards Rule 10):")
+        for v in flaky_violations:
+            print(v)
+        print(
+            "\nAdd to each listed test:\n"
+            "  @pytest.mark.flaky(reruns=2, reruns_delay=2)\n"
+            "Exception: tests that only use HttpClient inside pytest.raises(ValueError) "
+            "(HTTPS enforcement) are exempt — they never connect to the network."
         )
         return 1
 

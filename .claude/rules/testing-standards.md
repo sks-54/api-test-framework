@@ -5,6 +5,47 @@ secondary to anything stated here.
 
 ---
 
+## 10. Every Live-API Test Must Have `@pytest.mark.flaky(reruns=2, reruns_delay=2)`
+
+Any test function that makes a live HTTP call (uses `HttpClient`) must be decorated
+with `@pytest.mark.flaky(reruns=2, reruns_delay=2)` **at authoring time**, not after the
+first CI failure.
+
+```python
+# CORRECT — retry declared upfront
+@pytest.mark.equivalence
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_germany_schema(env_config):
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/name/germany")
+    ...
+
+# FORBIDDEN — no retry; a single CI runner fluke files a premature bug
+@pytest.mark.equivalence
+def test_germany_schema(env_config):
+    ...
+```
+
+**Exceptions** (no live HTTP call, so no retry needed):
+- Tests that only assert `pytest.raises(ValueError)` on `HttpClient` construction
+  (HTTPS enforcement tests — they never connect to a remote server)
+
+**Interaction with xfail:** `pytest-rerunfailures` does not retry tests whose outcome
+is `xfail` — the outcome is already "expected failure", not "failed". Tests marked
+`@pytest.mark.xfail` are therefore exempt from this rule because the xfail marker already
+provides a stable CI outcome without retrying.
+
+**Rationale:** A transient runner IP being throttled is indistinguishable from a real bug
+if the test runs only once. Three attempts (1 initial + 2 reruns) provide enough evidence
+to distinguish an ENV_FAILURE (passes on retry) from an SLA_VIOLATION (fails all three).
+Filing a bug after one failure wastes a GitHub issue on noise.
+
+**Enforcement:** `scripts/verify_bug_markers.py` scans all `test_*.py` files and exits
+non-zero if any test using `HttpClient` lacks `@pytest.mark.flaky` and lacks
+`@pytest.mark.xfail`. The git pre-push hook blocks the push.
+
+---
+
 ## 1. Parametrize From JSON Files — Never Inline Test Data
 
 All `@pytest.mark.parametrize` calls must load data from `test_data/`. Inline

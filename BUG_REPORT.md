@@ -15,6 +15,8 @@ New bugs are appended; resolved bugs are marked with status RESOLVED.
 | **Severity** | P0 (blocker) / P1 (high) / P2 (medium) / P3 (low) |
 | **Category** | QUALITY_FAILURE / SLA_VIOLATION |
 | **Status** | OPEN / RESOLVED / WONT_FIX |
+| **Platform** | OS + version where first observed (e.g. `ubuntu-latest`, `windows-latest`) |
+| **Python** | Python version where first observed (e.g. `3.9`, `3.11`) |
 | **Title** | One-line summary |
 | **curl** | Complete runnable command — no placeholders (Rule 24) |
 | **Expected** | Per spec |
@@ -23,6 +25,9 @@ New bugs are appended; resolved bugs are marked with status RESOLVED.
 
 The `curl` field is mandatory (Rule 24). Confirm the curl reproduces the bug locally
 before filing the GitHub issue. Include curl in the GitHub issue body too.
+
+When a bug is reproduced on additional platforms/versions, update the **Platform** and
+**Python** fields and add a comment to the GitHub issue with the new observation.
 
 ---
 
