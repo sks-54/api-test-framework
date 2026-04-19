@@ -297,7 +297,12 @@ def _ai_generate_tests(
         )
         return None
 
-    source_label = "explicit --api-key" if key_source == "explicit" else "ANTHROPIC_API_KEY (auto-detected)"
+    source_label = {
+        "claude_cli": "Claude Code session",
+        "explicit": "explicit --api-key",
+        "env": "ANTHROPIC_API_KEY env var",
+        "dotenv": ".env file",
+    }.get(key_source, key_source)
     print(f"[apitf] AI generation: {source_label} → calling {model} …", flush=True)
 
     try:
@@ -352,13 +357,18 @@ Techniques to cover (at least one test each):
 Output ONLY the Python source for tests/test_{module_name}.py. No prose, no markdown fences."""
 
     try:
-        client = anthropic.Anthropic(api_key=resolved_key)
-        message = client.messages.create(
-            model=model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        src = message.content[0].text.strip()
+        from apitf.eval_loop import _claude_cli_call
+        if key_source == "claude_cli":
+            src = _claude_cli_call(prompt, model)
+        else:
+            import anthropic
+            client = anthropic.Anthropic(api_key=resolved_key)
+            message = client.messages.create(
+                model=model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            src = message.content[0].text.strip()
         if src.startswith("```"):
             src = "\n".join(src.split("\n")[1:])
         if src.endswith("```"):
@@ -691,6 +701,7 @@ def cmd_run(argv: list[str] | None = None) -> None:
     resolved_key, key_source = detect_ai_mode(args.api_key)
     if resolved_key:
         ai_label = {
+            "claude_cli": "Claude Code session (auto-detected via CLAUDECODE + claude CLI)",
             "explicit": "explicit --api-key",
             "env": "ANTHROPIC_API_KEY env var (auto-detected)",
             "dotenv": ".env file in project root (auto-detected)",

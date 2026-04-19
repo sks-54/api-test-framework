@@ -93,22 +93,59 @@ def _load_dotenv(project_root: Path | None = None) -> str | None:
     return None
 
 
+def _claude_cli_available() -> bool:
+    """True if the `claude` CLI is in PATH and responds (Claude Code authenticated session)."""
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _claude_cli_call(prompt: str, model: str) -> str:
+    """Call the claude CLI with a prompt via stdin, returning the response text.
+
+    Uses the authenticated Claude Code session — no API key needed.
+    Passes the prompt via stdin rather than -p to avoid shell length limits
+    and subprocess argument-list timeouts on long prompts.
+    """
+    result = subprocess.run(
+        ["claude", "--model", model, "-p", "-"],
+        input=prompt,
+        capture_output=True, text=True, timeout=180,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"claude CLI error: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
 def detect_ai_mode(explicit_key: str | None = None) -> tuple[str | None, str]:
-    """Detect which AI mode is available and return (api_key, source_label).
+    """Detect which AI mode is available and return (api_key_or_sentinel, source_label).
 
     Priority:
-      1. Explicit key passed via --api-key flag
-      2. ANTHROPIC_API_KEY environment variable
-      3. .env file in project root (ANTHROPIC_API_KEY=sk-ant-...)
-      4. None — falls back to 5-test stub, no reflector
+      1. Claude CLI authenticated session (CLAUDECODE=1 + `claude` in PATH) — no key needed
+      2. Explicit key passed via --api-key flag
+      3. ANTHROPIC_API_KEY environment variable
+      4. .env file in project root (ANTHROPIC_API_KEY=sk-ant-...)
+      5. None — falls back to 5-test stub, no reflector
+
+    Claude CLI is checked first because it requires zero configuration when running inside
+    Claude Code — the user's account is already authenticated.
 
     Returns:
-        (api_key, source) where source is one of:
+        (value, source) where source is one of:
+          "claude_cli" — authenticated via Claude Code session (value = "__claude_cli__")
           "explicit"   — key supplied via --api-key
           "env"        — key found in ANTHROPIC_API_KEY env var
           "dotenv"     — key loaded from .env file
           "none"       — no key available
     """
+    # Claude Code authenticated session — first priority, zero config required
+    if os.environ.get("CLAUDECODE") == "1" and _claude_cli_available():
+        return "__claude_cli__", "claude_cli"
     if explicit_key:
         return explicit_key, "explicit"
     env_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -123,10 +160,10 @@ def detect_ai_mode(explicit_key: str | None = None) -> tuple[str | None, str]:
 def _get_client(model: str | None = None, api_key: str | None = None):
     """Return (anthropic.Anthropic(), model) or (None, None) if unavailable.
 
-    Checks explicit api_key first, then ANTHROPIC_API_KEY env var.
+    When source is claude_cli, returns (None, None) — callers must use _claude_cli_call().
     """
-    key, _ = detect_ai_mode(api_key)
-    if not key:
+    key, source = detect_ai_mode(api_key)
+    if not key or source == "claude_cli":
         return None, None
     try:
         import anthropic
@@ -149,17 +186,35 @@ def _strip_fences(text: str) -> str:
 # Reflector (Opus review)
 # ---------------------------------------------------------------------------
 
+def _make_api_call(prompt: str, model: str, api_key: str | None) -> str:
+    """Route an API call through anthropic SDK or claude CLI depending on auth mode."""
+    _, source = detect_ai_mode(api_key)
+    if source == "claude_cli":
+        return _claude_cli_call(prompt, model)
+    client, resolved_model = _get_client(model, api_key=api_key)
+    if client is None:
+        raise RuntimeError("No API client available")
+    message = client.messages.create(
+        model=resolved_model,
+        max_tokens=MAX_RESPONSE_TOKENS,
+        system="You are a senior QA architect. Return structured JSON only.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return message.content[0].text
+
+
 def review_phase(
     phase: str, diff: str, rubric: dict[str, Any], api_key: str | None = None
 ) -> ReviewResult:
     """Submit a code diff to Opus for rubric-based review.
 
     Returns a ReviewResult dict with: score, passed, deviations, corrections, category.
-    Falls back to a stub result when no API key is available (auto-detected or explicit).
+    Works with ANTHROPIC_API_KEY, .env file, or authenticated Claude Code session.
+    Falls back to a stub result when no auth method is available.
     """
-    client, model = _get_client(ADVISOR_MODEL, api_key=api_key)
-    if client is None:
-        logger.info("[reflector] No ANTHROPIC_API_KEY — returning stub result")
+    resolved_key, source = detect_ai_mode(api_key)
+    if not resolved_key:
+        logger.info("[reflector] No auth available — returning stub result")
         return {
             "score": -1,
             "passed": False,
@@ -187,14 +242,18 @@ Return JSON only — no markdown fences, no prose:
   "category":    "<style | architecture | test-coverage | security>"
 }}"""
 
-    logger.info("[reflector] Sending %d-char prompt to %s", len(prompt), model)
-    message = client.messages.create(
-        model=model,
-        max_tokens=MAX_RESPONSE_TOKENS,
-        system="You are a senior QA architect. Return structured JSON only.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = message.content[0].text
+    logger.info("[reflector] Sending %d-char prompt to %s (via %s)", len(prompt), ADVISOR_MODEL, source)
+    try:
+        raw = _make_api_call(prompt, ADVISOR_MODEL, api_key)
+    except Exception as exc:
+        logger.warning("[reflector] API call failed: %s", exc)
+        return {
+            "score": -1,
+            "passed": False,
+            "deviations": [f"API call failed: {exc}"],
+            "corrections": [],
+            "category": "style",
+        }
     text = _strip_fences(raw)
     try:
         result: dict[str, Any] = json.loads(text)
@@ -214,15 +273,19 @@ def _reflect_test_file(
     model: str = ADVISOR_MODEL,
     api_key: str | None = None,
 ) -> ReviewResult:
-    """Opus reviews the final generated test file against the QA rubric."""
-    client, effective_model = _get_client(model, api_key=api_key)
-    if client is None:
-        print("[reflector] No API key available — skipping reflector review.", file=sys.stderr)
+    """Opus reviews the final generated test file against the QA rubric.
+
+    Routes through claude CLI (no key needed) when running inside Claude Code,
+    otherwise uses the anthropic SDK with ANTHROPIC_API_KEY / .env key.
+    """
+    resolved_key, source = detect_ai_mode(api_key)
+    if not resolved_key:
+        print("[reflector] No auth available — skipping reflector review.", file=sys.stderr)
         return {
             "score": -1,
             "passed": False,
             "deviations": ["No ANTHROPIC_API_KEY — reflector skipped."],
-            "corrections": ["Set ANTHROPIC_API_KEY to enable live Opus review."],
+            "corrections": ["Set ANTHROPIC_API_KEY or run inside Claude Code to enable live Opus review."],
             "category": "n/a",
         }
 
@@ -257,15 +320,9 @@ Return JSON only — no markdown fences:
   "category": "test-coverage"
 }}"""
 
-    print(f"[reflector] Sending {test_file.name} to {effective_model} for review …")
+    print(f"[reflector] Sending {test_file.name} to {ADVISOR_MODEL} for review (via {source}) …")
     try:
-        message = client.messages.create(
-            model=effective_model,
-            max_tokens=MAX_RESPONSE_TOKENS,
-            system="You are a senior QA architect. Return structured JSON only.",
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = message.content[0].text
+        raw = _make_api_call(prompt, ADVISOR_MODEL, api_key)
         text = _strip_fences(raw)
         result = json.loads(text)
         return result
@@ -396,7 +453,13 @@ def eval_loop(
     """
     resolved_key, key_source = detect_ai_mode(api_key)
     if resolved_key:
-        print(f"[eval-loop] AI mode: {'explicit --api-key' if key_source == 'explicit' else 'ANTHROPIC_API_KEY (auto-detected)'}")
+        mode_label = {
+            "claude_cli": "Claude Code session (auto-detected)",
+            "explicit": "explicit --api-key",
+            "env": "ANTHROPIC_API_KEY env var (auto-detected)",
+            "dotenv": ".env file (auto-detected)",
+        }.get(key_source, key_source)
+        print(f"[eval-loop] AI mode: {mode_label}")
     else:
         print("[eval-loop] AI mode: none — structural fixes and reflector review disabled")
         print("            Set ANTHROPIC_API_KEY or pass --api-key to enable.")
