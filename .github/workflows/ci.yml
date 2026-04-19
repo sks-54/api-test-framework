@@ -19,9 +19,13 @@ on:
       - "docs/**"
       - "specs/**"
 
-# Cancel in-progress runs on same branch/PR to avoid wasted spend
+# Cancel in-progress runs on the same branch regardless of which event fired.
+# github.head_ref = branch name for pull_request events (e.g. "phase/3-tests")
+# github.ref_name = branch name for push events (e.g. "phase/3-tests")
+# Both resolve to the same string, so push + PR-sync on the same branch share
+# one concurrency slot and the older run is cancelled automatically.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
