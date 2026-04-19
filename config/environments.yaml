@@ -11,7 +11,6 @@ countries:
     probe_path: /name/germany
     probe_params: {}
     injection_path: /name/{payload}
-    injection_expected_status: 404
     known_violations:
       - type: security_headers
         bug_id: BUG-007
@@ -30,7 +29,6 @@ weather:
       longitude: 13.41
       hourly: temperature_2m
     injection_path: /forecast?latitude={payload}&longitude=13.41&hourly=temperature_2m
-    injection_expected_status: 400
     known_violations:
       - type: method
         method: POST

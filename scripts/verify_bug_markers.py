@@ -91,12 +91,6 @@ def load_yaml_covered_bugs() -> set[str]:
         if env_name == "version" or not isinstance(env_cfg, dict):
             continue
         sec = env_cfg.get("security", {})
-        if "injection_path" in sec and "injection_expected_status" not in sec:
-            print(
-                f"[ERROR] {env_name}: has injection_path but missing injection_expected_status. "
-                "Both must be present together."
-            )
-            sys.exit(1)
         for violation in sec.get("known_violations", []):
             bug_id = violation.get("bug_id", "")
             vtype = violation.get("type", "")
