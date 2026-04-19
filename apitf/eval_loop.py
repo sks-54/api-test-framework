@@ -5,7 +5,12 @@ Requires ANTHROPIC_API_KEY for:
   - AI-assisted structural fix (re-generates broken test code)
   - Opus reflector review (scores the final test file)
 
-Without a key both steps are skipped and a stub result is returned.
+Key resolution order (detect_ai_mode):
+  1. Explicit key passed via --api-key flag
+  2. ANTHROPIC_API_KEY environment variable
+  3. .env file in the project root (KEY=VALUE format, no quotes needed)
+
+Without a key all AI steps are skipped and a stub result is returned.
 """
 
 from __future__ import annotations
@@ -65,18 +70,43 @@ class EvalResult:
     clean: bool = False
 
 
+def _load_dotenv(project_root: Path | None = None) -> str | None:
+    """Read ANTHROPIC_API_KEY from a .env file in the project root.
+
+    Supports bare KEY=VALUE and KEY="VALUE" formats. Returns the value or None.
+    Never raises — a malformed or missing .env is silently ignored.
+    """
+    root = project_root or Path(__file__).parent.parent
+    dotenv = root / ".env"
+    if not dotenv.exists():
+        return None
+    try:
+        for line in dotenv.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            if key.strip() == "ANTHROPIC_API_KEY":
+                return val.strip().strip('"').strip("'") or None
+    except OSError:
+        pass
+    return None
+
+
 def detect_ai_mode(explicit_key: str | None = None) -> tuple[str | None, str]:
     """Detect which AI mode is available and return (api_key, source_label).
 
     Priority:
       1. Explicit key passed via --api-key flag
-      2. ANTHROPIC_API_KEY environment variable (auto-detected)
-      3. None — falls back to 5-test stub, no reflector
+      2. ANTHROPIC_API_KEY environment variable
+      3. .env file in project root (ANTHROPIC_API_KEY=sk-ant-...)
+      4. None — falls back to 5-test stub, no reflector
 
     Returns:
         (api_key, source) where source is one of:
           "explicit"   — key supplied via --api-key
-          "env"        — key found in ANTHROPIC_API_KEY
+          "env"        — key found in ANTHROPIC_API_KEY env var
+          "dotenv"     — key loaded from .env file
           "none"       — no key available
     """
     if explicit_key:
@@ -84,6 +114,9 @@ def detect_ai_mode(explicit_key: str | None = None) -> tuple[str | None, str]:
     env_key = os.environ.get("ANTHROPIC_API_KEY")
     if env_key:
         return env_key, "env"
+    dotenv_key = _load_dotenv()
+    if dotenv_key:
+        return dotenv_key, "dotenv"
     return None, "none"
 
 

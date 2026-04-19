@@ -7,6 +7,28 @@
 | Python | 3.9 – 3.12 |
 | Git | any recent |
 | GitHub CLI (`gh`) | 2.x+ (for push/CI monitoring) |
+| `ANTHROPIC_API_KEY` | optional — enables AI test generation, eval loop, and Opus reflector |
+
+### Setting up your Anthropic API key (optional but recommended)
+
+`apitf-run` auto-detects your key in this priority order:
+
+1. `--api-key sk-ant-...` flag (explicit, one-off)
+2. `ANTHROPIC_API_KEY` environment variable
+3. `.env` file in the project root
+
+**Recommended — add to `.env`** (gitignored, persists across sessions):
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE" >> .env
+```
+
+**Or export for the current shell session:**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+```
+
+Without a key, `apitf-run` still works: it generates a 5-test baseline stub and skips the
+AI generation, eval-loop structural fixes, and Opus reflector review.
 
 ---
 
