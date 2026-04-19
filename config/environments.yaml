@@ -1,0 +1,15 @@
+# Add new environments here — framework discovers them automatically via --env flag
+# Schema: <env_name>: { base_url: <str>, thresholds: { max_response_time: <float>, min_results_count: <int> } }
+version: "1.0"
+
+countries:
+  base_url: https://restcountries.com/v3.1
+  thresholds:
+    max_response_time: 2.0
+    min_results_count: 1
+
+weather:
+  base_url: https://api.open-meteo.com/v1
+  thresholds:
+    max_response_time: 3.0
+    min_results_count: 1
