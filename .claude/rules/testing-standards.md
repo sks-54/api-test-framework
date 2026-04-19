@@ -98,3 +98,33 @@ assert response.status_code == 404
 assert response.status_code != 200
 assert not response.ok
 ```
+
+## 9. Skip Reasons Must Explain Why, Not Just What
+
+Every `pytest.mark.skip` and `pytest.mark.skipif` reason must answer:
+- **Why** this test doesn't run in this context
+- **How** to run it if you want it
+
+A reason that only names what is being skipped gives no actionable information to
+someone reading the output cold.
+
+```python
+# CORRECT — answers why and how to run it
+pytest.mark.skip(
+    reason=(
+        "--env weather selected: countries tests are environment-scoped and only run "
+        "under --env countries. Run `pytest` (no --env flag) to execute all environments."
+    )
+)
+
+# FORBIDDEN — says what, not why
+pytest.mark.skip(reason="--env weather: skipping countries tests")
+```
+
+This applies to:
+- `conftest.py` skip logic (`pytest_collection_modifyitems`)
+- Inline `@pytest.mark.skip` decorators in test files
+- `@pytest.mark.skipif` conditions
+
+The test output is often the first thing a new engineer reads when onboarding.
+A skip reason that explains context saves a debugging session.

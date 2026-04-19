@@ -79,10 +79,16 @@ def pytest_collection_modifyitems(
     for item in items:
         # Skip countries tests when --env weather (and vice versa)
         if selected_env == "weather" and item.get_closest_marker("countries"):
-            item.add_marker(
-                pytest.mark.skip(reason=f"--env weather: skipping countries tests")
-            )
+            item.add_marker(pytest.mark.skip(
+                reason=(
+                    "--env weather selected: countries tests are environment-scoped and only "
+                    "run under --env countries. Use `pytest` (no --env flag) to run all environments."
+                )
+            ))
         elif selected_env == "countries" and item.get_closest_marker("weather"):
-            item.add_marker(
-                pytest.mark.skip(reason=f"--env countries: skipping weather tests")
-            )
+            item.add_marker(pytest.mark.skip(
+                reason=(
+                    "--env countries selected: weather tests are environment-scoped and only "
+                    "run under --env weather. Use `pytest` (no --env flag) to run all environments."
+                )
+            ))
