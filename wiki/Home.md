@@ -1,6 +1,6 @@
 # API Test Framework — Wiki
 
-Production-grade, config-driven multi-environment API test framework with 88 tests across REST Countries and Open-Meteo. New APIs added in 3 steps via YAML config — zero framework changes.
+Production-grade, config-driven multi-environment API test framework with **108 tests** across REST Countries, Open-Meteo, and JSONPlaceholder. New APIs added in 3 steps via YAML config — zero framework changes.
 
 ## Navigation
 
