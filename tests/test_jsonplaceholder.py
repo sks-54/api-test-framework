@@ -8,8 +8,6 @@ from apitf.validators.jsonplaceholder_validator import (
     TodoValidator,
     AlbumValidator,
 )
-from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS
-
 pytestmark = [pytest.mark.jsonplaceholder, allure.suite("jsonplaceholder")]
 
 
@@ -281,11 +279,14 @@ def test_get_posts_list_state_count_and_fields(env_config: dict) -> None:
         assert "body" in post
 
 
-@allure.title("TC-026: GET /posts/9999/comments xfail — non-existent post should return 404 not 200")
+@allure.title("TC-026: GET /posts/9999/comments xfail — JSONPlaceholder returns 200+empty not 404")
 @pytest.mark.xfail(
-    reason="JSONPlaceholder returns 200 with empty list for comments on non-existent post instead of 404",
-    raises=SLA_FAILURE_EXCEPTIONS,
     strict=False,
+    raises=AssertionError,
+    reason=(
+        "JSONPlaceholder by design returns 200 with empty list for non-existent post comments "
+        "instead of 404. Known platform behavior, not a spec violation requiring a filed bug."
+    ),
 )
 def test_get_comments_nonexistent_post_xfail(env_config: dict) -> None:
     cfg = env_config["jsonplaceholder"]

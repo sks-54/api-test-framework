@@ -5,7 +5,11 @@ from typing import Any
 
 from apitf.validators.base_validator import BaseValidator, ValidationResult
 
-REQUIRED_FIELDS: tuple[str, ...] = ("tld", "cca2", "ccn3", "cca3", "cioc", "independent", "status", "unMember", "idd", "capital",)
+REQUIRED_FIELDS: tuple[str, ...] = (
+    "tld", "cca2", "ccn3", "cca3", "cioc", "independent", "status",
+    "unMember", "idd", "capital", "altSpellings", "region", "subregion",
+    "landlocked", "borders",
+)
 
 
 class CountriesValidator(BaseValidator):

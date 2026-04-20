@@ -61,13 +61,17 @@ Each worker is an independent agent: it scaffolds a validator class and test fil
 git clone https://github.com/sks-54/api-test-framework.git
 cd api-test-framework
 
-python3 -m venv .venv && source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
-pip install --upgrade pip && pip install -e ".[test]"
+# macOS / Linux
+python3 -m venv .venv && source .venv/bin/activate
 
+# Windows (PowerShell)
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+
+pip install --upgrade pip && pip install -e ".[test]"
 python scripts/setup_hooks.py   # installs pre-push bug-marker check
 ```
 
-See `INSTALL.md` for Windows-specific steps and AI provider setup.
+See `INSTALL.md` for detailed Windows notes, CMD alternatives, and AI provider setup.
 
 ---
 

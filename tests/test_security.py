@@ -25,8 +25,6 @@ import pytest
 import yaml
 
 from apitf.http_client import HttpClient
-from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS
-
 pytestmark = [pytest.mark.security, allure.suite("security")]
 
 logger = logging.getLogger(__name__)
@@ -71,7 +69,7 @@ def _violation_index(env_cfg: dict[str, Any], vtype: str, **kw: str) -> dict[str
 def _xfail_mark(violation: dict[str, Any]) -> pytest.MarkDecorator:
     return pytest.mark.xfail(
         strict=True,
-        raises=SLA_FAILURE_EXCEPTIONS,  # AssertionError (wrong status) + ConnectionError (timeout)
+        raises=AssertionError,
         reason=(
             f"Known {violation['bug_id']} / {violation['issue']}: {violation['reason']}. "
             f"xpass if the API fixes this — remove YAML known_violations entry then."
