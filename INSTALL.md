@@ -208,9 +208,133 @@ python scripts/verify_bug_markers.py
 
 ---
 
-## Adding a New API (3 steps)
+## Generating Tests for a New API (CLI Workflow)
 
-1. Add an entry to `config/environments.yaml` (base_url, thresholds, security block)
+Once the package is installed (`pip install -e ".[test]"`), two CLI commands are available
+on all platforms: `apitf-run` (full pipeline) and `apitf-parse` (parse only).
+
+### Step 1 — Place your spec file
+
+```
+specs/myapi_spec.pdf     # PDF
+specs/myapi_spec.yaml    # OpenAPI 3.x
+specs/myapi_spec.md      # Markdown
+```
+
+### Step 2 — Run the full pipeline
+
+**macOS / Linux:**
+```bash
+# Zero-config inside a Claude Code session (no API key needed)
+apitf-run specs/myapi_spec.pdf --env myapi --sample
+
+# Outside Claude Code — set API key first
+export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+apitf-run specs/myapi_spec.pdf --env myapi --sample
+
+# Override base URL when the spec has multiple hosts
+apitf-run specs/myapi_spec.pdf \
+  --env myapi \
+  --base-url https://api.example.com/v1 \
+  --probe-path /health \
+  --sample
+
+# Parse only — inspect what the parser extracts, no test generation
+apitf-parse specs/myapi_spec.pdf --env myapi
+
+# Force sequential mode (disable parallel workers — useful for debugging)
+apitf-run specs/myapi_spec.pdf --env myapi --sample --no-parallel
+
+# Custom AI models and iteration limit
+apitf-run specs/myapi_spec.pdf --env myapi --sample \
+  --model claude-sonnet-4-6 \
+  --reflector-model claude-opus-4-7 \
+  --max-iter 5
+```
+
+**Windows (PowerShell):**
+```powershell
+# Zero-config inside Claude Code desktop app
+apitf-run specs\myapi_spec.pdf --env myapi --sample
+
+# With API key
+$env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
+apitf-run specs\myapi_spec.pdf --env myapi --sample
+
+# Override base URL
+apitf-run specs\myapi_spec.pdf `
+  --env myapi `
+  --base-url https://api.example.com/v1 `
+  --probe-path /health `
+  --sample
+
+# Parse only
+apitf-parse specs\myapi_spec.pdf --env myapi
+```
+
+**Windows (CMD):**
+```cmd
+set ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+apitf-run specs\myapi_spec.pdf --env myapi --sample
+```
+
+### What the pipeline writes automatically
+
+| File | Purpose |
+|------|---------|
+| `apitf/validators/myapi_validator.py` | Typed field-contract validator |
+| `tests/test_myapi.py` | 5-test scaffold (positive, performance, schema, security, negative) |
+| `config/environments.yaml` | New `myapi` block (base_url, probe_path, thresholds) |
+| `pytest.ini` | `myapi` marker added |
+| `test_plans/myapi_test_plan.md` | Test plan generated from spec |
+| `bugs/BUG_REPORT_myapi_*.md` | Bug report per resource (parallel mode) |
+
+### Step 3 — Run the generated tests
+
+All commands work identically on macOS, Linux, and Windows:
+
+```bash
+# Run only the new environment
+pytest --env myapi -v --alluredir=allure-results
+
+# Run everything including new env
+pytest -v --alluredir=allure-results
+
+# Collect only — verify tests were generated correctly
+pytest --env myapi --collect-only -q
+
+# View Allure report
+allure serve allure-results
+```
+
+### Step 4 — Extend beyond the scaffold (optional)
+
+The scaffold produces 5 baseline tests. To reach full coverage (10 techniques),
+use the Claude Code skills inside a Claude Code session:
+
+```
+/test-generator
+  ENDPOINT_URL=https://api.example.com/v1
+  ENDPOINT_PATH=/items/{id}
+  HTTP_METHOD=GET
+  RESPONSE_FIELDS=id,name,price
+  ENV_NAME=myapi
+  VALIDATOR_CLASS=MyapiValidator
+  DATA_FILE=test_data/myapi_items.json
+```
+
+Or re-run the eval loop directly on the existing test file:
+
+```bash
+python scripts/advisor_review.py \
+  --env myapi \
+  --test-file tests/test_myapi.py \
+  --max-iter 3
+```
+
+### Adding a New API Manually (3 steps, no CLI)
+
+1. Add an entry to `config/environments.yaml` (base_url, probe_path, thresholds)
 2. Add `apitf/validators/<new>_validator.py` extending `BaseValidator`
 3. Add `tests/test_<new>.py` using the `env_config` fixture
 

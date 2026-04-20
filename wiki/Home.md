@@ -7,6 +7,7 @@ Production-grade, config-driven multi-environment API test framework with **114 
 | Page | Contents |
 |------|----------|
 | [Framework Components](Framework-Components) | HttpClient, BaseValidator, validators, BugReporter, SpecParser internals |
+| [CLI Quickstart](CLI-Quickstart) | `apitf-run` / `apitf-parse` — cross-platform CLI usage for testing a new spec |
 | [Claude Code Skills](Claude-Code-Skills) | `/spec-parser`, `/validator-generator`, `/test-generator` — full reference |
 | [Allure Report Guide](Allure-Report-Guide) | Suites, attachments, xfail/xpass, CI artifact download |
 | [Bug Lifecycle](Bug-Lifecycle) | From failure → GitHub issue → xfail → resolution |
