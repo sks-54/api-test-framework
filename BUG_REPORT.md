@@ -409,6 +409,102 @@ curl -s -o /dev/null -w "%{http_code}" -X PATCH "https://api.open-meteo.com/v1/f
 
 ---
 
+### BUG-014
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-014 |
+| **Issue** | [file with `gh issue create --title '[BUG] BUG-014: TC-WEA-014 targets open-meteo.com /v1/all — wrong API, test-authoring error' --label bug`] |
+| **Test** | TC-WEA-014 |
+| **Severity** | P2 |
+| **Category** | TEST_AUTHORING_ERROR |
+| **Status** | WONT_FIX |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest |
+| **Python** | 3.9, 3.11, 3.12 |
+| **Title** | TC-WEA-014 uses `https://api.open-meteo.com/v1/all?fields=name%2Cpopulation` — open-meteo.com is a weather forecast API with no `/v1/all` countries endpoint; test targets wrong API |
+
+**curl (reproduces bug):**
+```bash
+# open-meteo.com returns 404 for /v1/all — endpoint does not exist on this API
+curl -s -o /dev/null -w "%{http_code}" "https://api.open-meteo.com/v1/all?fields=name%2Cpopulation"
+curl -s "https://api.open-meteo.com/v1/all?fields=name%2Cpopulation" | python3 -m json.tool
+```
+
+**Expected (per spec):** No HTTP 200 is promised. open-meteo.com documents `/v1/forecast` for weather data; it defines no `/v1/all` endpoint and no `fields` filter for country data. The endpoint the test intended is the REST Countries API: `GET https://restcountries.com/v3.1/all?fields=name%2Cpopulation` → HTTP 200.
+
+**Actual:** HTTP 404 Not Found — `{"error": true, "reason": "Not Found"}` — correct behavior from open-meteo.com.
+
+**Data:**
+- Request URL: `https://api.open-meteo.com/v1/all?fields=name%2Cpopulation`
+- Status Code: 404
+- Notes: Test was authored with the wrong base URL. WONT_FIX — the test has since been corrected.
+
+---
+
+### BUG-015
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-015 |
+| **Issue** | [TBD — file with `gh issue create --title '[BUG] BUG-015: /id/99999999 returns 400 Bad Request instead of 404 Not Found' --label bug`] |
+| **Test** | TC-WEA-? |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | WONT_FIX |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest |
+| **Python** | 3.9, 3.11, 3.12 |
+| **Title** | `/id/99999999` returns 400 Bad Request instead of 404 Not Found for out-of-range ID |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 404, actual HTTP 400
+curl -s -o /dev/null -w "%{http_code}" "https://api.open-meteo.com/v1/id/99999999"
+curl -s "https://api.open-meteo.com/v1/id/99999999" | python3 -m json.tool
+```
+
+**Expected (per spec):** HTTP 404 — resource not found for out-of-range ID boundary value
+
+**Actual:** HTTP 400 Bad Request — `{"error": true, "reason": "Bad Request"}`
+
+**Data:**
+- Request URL: `https://api.open-meteo.com/v1/id/99999999`
+- Status Code: 400
+- Notes: API conflates "ID out of valid range" with "bad request" — spec requires 404 for non-existent resources
+
+---
+
+### BUG-016
+
+| Field | Value |
+|-------|-------|
+| **ID** | BUG-016 |
+| **Issue** | [TBD — file with `gh issue create --title '[BUG] BUG-016: /region/europe returns 404 instead of 200 with non-empty list' --label bug`] |
+| **Test** | TC-C-005 |
+| **Severity** | P2 |
+| **Category** | QUALITY_FAILURE |
+| **Status** | WONT_FIX |
+| **Platform** | ubuntu-latest, windows-latest, macos-latest |
+| **Python** | 3.9, 3.11, 3.12 |
+| **Title** | `/region/europe` returns 404 Not Found instead of 200 with non-empty list |
+
+**curl (reproduces bug):**
+```bash
+# Expected HTTP 200, actual HTTP 404
+curl -s -o /dev/null -w "%{http_code}" "https://api.open-meteo.com/v1/region/europe"
+curl -s "https://api.open-meteo.com/v1/region/europe" | python3 -m json.tool
+```
+
+**Expected (per spec):** HTTP 200 — response body is a non-empty list of region entries
+
+**Actual:** HTTP 404 Not Found — `{"error": true, "reason": "Not Found"}`
+
+**Data:**
+- Request URL: `https://api.open-meteo.com/v1/region/europe`
+- Status Code: 404
+- Notes: `/region/europe` endpoint is unrecognised by the API; state assertion on non-empty list cannot be reached
+
+---
+
 ## Resolved Bugs
 
 _None yet._
@@ -433,4 +529,3 @@ _None yet._
 4. Add entry to this file — `curl` field is mandatory (Rule 24)
 5. Add `@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Known API bug BUG-NNN / Issue #N: ...")` to the test
 6. Add to `CLAUDE_LOG.md` Known Bugs table
-7. Run `python scripts/verify_bug_markers.py` — must exit 0 before push

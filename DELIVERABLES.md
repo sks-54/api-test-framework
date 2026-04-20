@@ -75,19 +75,39 @@
 - [x] `apitf/spec_parser/base_parser.py` — abstract `EndpointSpec` + parser ABC
 - [x] `apitf/spec_parser/pdf_parser.py` — fully implemented PDF spec parser
 - [x] `apitf/spec_parser/openapi_parser.py` — extensible stub (v1.1)
-- [x] `apitf/spec_parser/markdown_parser.py` — extensible stub (v1.1)
+- [x] `apitf/spec_parser/markdown_parser.py` — full implementation (implemented in session 3)
 - [x] `apitf/http_client.py` — shared HTTP wrapper (retry, timing, platform-safe)
+
+## AI Provider Layer
+
+- [x] `apitf/providers/base.py` — `LLMProvider` ABC + `ProviderModels` dataclass
+- [x] `apitf/providers/claude_cli.py` — `ClaudeCLIProvider`: zero-config inside Claude Code sessions; lazy model selection with fallback; subprocess tracking + signal cleanup
+- [x] `apitf/providers/anthropic.py` — `AnthropicProvider`: SDK-based with `ANTHROPIC_API_KEY`
+- [x] `apitf/providers/__init__.py` — `discover_provider()`: auto-selects best available provider
+- [x] `pyproject.toml` `[ai]` optional extra: `pip install -e ".[ai]"` installs Anthropic SDK
 
 ## Submission
 
 - [x] GitHub repo: `sks-54/api-test-framework` (new, public)
 - [x] Phased PRs (one per phase, each Opus-reviewed before merge)
-- [x] `README.md` with setup, run instructions, 6 Mermaid architecture diagrams, design decisions
+- [x] `README.md` with setup, run instructions, 6 Mermaid architecture diagrams (Framework Overview, Parallel Pipeline, Eval Loop, CI Pipeline, Provider Discovery, Bug Lifecycle), design decisions
 - [x] `INSTALL.md` — platform-specific guide (macOS/Linux/Windows)
 - [x] `wiki/` — 6 reference pages (Components, Skills, Bug Lifecycle, Design Decisions, Rules, Troubleshooting)
 - [x] `pyproject.toml` — installable package (`pip install -e ".[test]"`)
 - [x] Tagged `v2.0.0.0` once all items above are checked
 - [x] `ENHANCEMENTS.md` tracking post-v2.0.0.0 roadmap
+- [x] `wiki/Allure-Report-Guide.md` — Allure CLI setup, suite filtering, xfailed/xpassed interpretation
+- [x] `wiki/Test-Design-Techniques.md` — 10 techniques with live examples from the test suite
+
+## Parallel Pipeline (post-v2.0.0.0)
+
+- [x] `_group_specs_by_resource()` — groups `EndpointSpec` objects by first non-template path segment
+- [x] `_run_resource_pipeline()` — per-resource worker: scaffold → eval_loop → isolated bug report
+- [x] `ThreadPoolExecutor(max_workers=4)` in `cmd_run()` — parallel execution when spec has >1 resource group
+- [x] `--no-parallel` flag on `apitf-run` — forces sequential mode for debugging
+- [x] `scripts/merge_bug_reports.py` — consolidates `bugs/BUG_REPORT_<env>_*.md` into master `BUG_REPORT.md`
+- [x] `EndpointSpec.resource_name` field — populated by all parsers from `_resource_from_path()`
+- [x] Per-resource file naming: `test_<env>_<resource>.py`, `<env>_<resource>_validator.py`, `bugs/BUG_REPORT_<env>_<resource>.md`
 
 ---
 

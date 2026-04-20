@@ -1,3 +1,10 @@
+jsonplaceholder:
+  base_url: https://jsonplaceholder.typicode.com
+  probe_path: /posts/1
+  thresholds:
+    max_response_time: 3.0
+    min_results_count: 1
+
 countries:
   base_url: https://restcountries.com/v3.1
   probe_path: /name/germany

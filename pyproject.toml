@@ -21,6 +21,10 @@ test = [
     "allure-pytest>=2.13,<3.0",
     "pytest-rerunfailures>=12.0,<16.0",
 ]
+# Claude Sonnet + Opus via Anthropic API key
+ai = ["anthropic>=0.40,<2.0"]
+# Full install: framework + tests + Claude AI
+all = ["apitf[test,ai]"]
 
 [project.scripts]
 apitf-parse = "apitf.cli:cmd_parse"

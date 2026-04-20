@@ -15,7 +15,8 @@ All entries are append-only. Resolved entries are marked but never deleted.
 | 4 | Reporting | MERGED with Phase 2+3 | #4 | bug_reporter.py, deliverables_tracker.py, Allure config |
 | 5 | CI Pipeline | MERGED | #3 | 3-OS × 4-Python matrix, artifact upload |
 | 6 | Claude Code Artifacts | MERGED with Phase 2 | #2 | rules/, skills/, scripts/advisor_review.py |
-| 7 | README + Tag | PENDING | — | README.md missing; v1.0.0 tag pending |
+| 7 | README + Tag | DONE | — | README.md complete (150 lines); v2.0.0 package |
+| 8 | Provider Refactor | DONE | — | ClaudeCLIProvider + AnthropicProvider; lazy model selection; subprocess cleanup |
 
 ---
 

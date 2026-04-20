@@ -9,14 +9,14 @@
 | ID | Enhancement | Effort | Notes |
 |----|-------------|--------|-------|
 | E-01 | `OpenAPIParser` — full implementation | Medium | Stub in `apitf/spec_parser/openapi_parser.py`. REST Countries exposes OpenAPI spec; Open-Meteo does too. Auto-generates `environments.yaml` entries from spec. |
-| E-02 | `MarkdownParser` — full implementation | Small | Stub in `apitf/spec_parser/markdown_parser.py`. Targets API docs in `.md` format (e.g., GitHub-hosted API docs). |
+| E-02 | `MarkdownParser` — full implementation | Small | **DONE** — implemented in session 3. Parses Base URL + method/path/fields tables from `.md` spec files. Verified on JSONPlaceholder spec (6 endpoints extracted). |
 | E-03 | Spec ingestion CLI (`scripts/ingest_spec.py`) | Small | Parses a dropped spec doc → updates `environments.yaml` + generates test skeleton. |
 
 ## v1.2 — Advisor Integration
 
 | ID | Enhancement | Effort | Notes |
 |----|-------------|--------|-------|
-| E-04 | `scripts/advisor_review.py` — full SDK implementation | Small | Stub exists. Requires `ANTHROPIC_API_KEY` env var. Sends git diff + phase label to `claude-opus-4-7` with extended thinking; returns structured JSON review. |
+| E-04 | `scripts/advisor_review.py` — CI integration | Small | Full implementation exists. Requires `ANTHROPIC_API_KEY` or Claude Code session. Sends git diff + phase label to `claude-opus-4-7`; returns structured JSON review. |
 | E-05 | Opus advisor as optional CI gate | Medium | GitHub Actions job (`advisor-review`) that runs only when `ANTHROPIC_API_KEY` secret is set. Skipped gracefully if absent. |
 
 ## v1.3 — Coverage & Scale
@@ -40,6 +40,14 @@
 |----|-------------|--------|-------|
 | E-11 | Prometheus metrics export from test runs | Medium | Expose response time histograms per environment. |
 | E-12 | Slack/Teams failure notification hook | Small | Post bug reports to a channel on CI failure. |
+
+---
+
+## v1.6 — Generator Improvements
+
+| ID | Enhancement | Effort | Notes |
+|----|-------------|--------|-------|
+| E-13 | Per-resource validators + parallel scaffold | Medium | **DONE** — implemented in session 4. `apitf-run` now groups endpoints by resource (`_group_specs_by_resource`), runs up to 4 parallel workers via `ThreadPoolExecutor`, each generating its own validator (`<env>_<resource>_validator.py`), test file (`test_<env>_<resource>.py`), and isolated bug report (`bugs/BUG_REPORT_<env>_<resource>.md`). Bug reports merged post-parallel via `scripts/merge_bug_reports.py`. `--no-parallel` flag for sequential fallback. Single-resource specs (countries, weather) use existing sequential path unchanged. |
 
 ---
 

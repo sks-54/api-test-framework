@@ -1,16 +1,12 @@
 """
 apitf.eval_loop — automated eval loop and Opus reflector.
 
-Requires ANTHROPIC_API_KEY for:
-  - AI-assisted structural fix (re-generates broken test code)
-  - Opus reflector review (scores the final test file)
+AI provider is auto-discovered via apitf.providers.discover_provider():
+  1. Claude Code CLI session (CLAUDECODE=1 + claude in PATH)
+  2. Anthropic SDK (ANTHROPIC_API_KEY)
+  3. None → 5-test stub, reflector skipped
 
-Key resolution order (detect_ai_mode):
-  1. Explicit key passed via --api-key flag
-  2. ANTHROPIC_API_KEY environment variable
-  3. .env file in the project root (KEY=VALUE format, no quotes needed)
-
-Without a key all AI steps are skipped and a stub result is returned.
+Without any provider all AI steps are skipped and a stub result is returned.
 """
 
 from __future__ import annotations
@@ -72,107 +68,33 @@ class EvalResult:
     clean: bool = False
 
 
-def _load_dotenv(project_root: Path | None = None) -> str | None:
-    """Read ANTHROPIC_API_KEY from a .env file in the project root.
-
-    Supports bare KEY=VALUE and KEY="VALUE" formats. Returns the value or None.
-    Never raises — a malformed or missing .env is silently ignored.
-    """
-    root = project_root or Path(__file__).parent.parent
-    dotenv = root / ".env"
-    if not dotenv.exists():
-        return None
-    try:
-        for line in dotenv.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("#") or "=" not in line:
-                continue
-            key, _, val = line.partition("=")
-            if key.strip() == "ANTHROPIC_API_KEY":
-                return val.strip().strip('"').strip("'") or None
-    except OSError:
-        pass
-    return None
-
-
-def _claude_cli_available() -> bool:
-    """True if the `claude` CLI is in PATH and responds (Claude Code authenticated session)."""
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-
-def _claude_cli_call(prompt: str, model: str) -> str:
-    """Call the claude CLI with a prompt via stdin, returning the response text.
-
-    Runs from /tmp so the project CLAUDE.md is not loaded (prevents the CLI
-    from prepending session-start prose to its response).
-    """
-    result = subprocess.run(
-        ["claude", "--model", model, "-p", "--allowedTools", "", "--output-format", "text", "-"],
-        input=prompt,
-        capture_output=True, text=True, timeout=180,
-        cwd="/tmp",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"claude CLI error: {result.stderr.strip()}")
-    return result.stdout.strip()
+from apitf.providers import discover_provider, _NO_AI_MESSAGE
+from apitf.providers.base import LLMProvider
 
 
 def detect_ai_mode(explicit_key: str | None = None) -> tuple[str | None, str]:
-    """Detect which AI mode is available and return (api_key_or_sentinel, source_label).
+    """Legacy shim — returns (sentinel_or_key, source) for backward compatibility.
 
-    Priority:
-      1. Claude CLI authenticated session (CLAUDECODE=1 + `claude` in PATH) — no key needed
-      2. Explicit key passed via --api-key flag
-      3. ANTHROPIC_API_KEY environment variable
-      4. .env file in project root (ANTHROPIC_API_KEY=sk-ant-...)
-      5. None — falls back to 5-test stub, no reflector
-
-    Claude CLI is checked first because it requires zero configuration when running inside
-    Claude Code — the user's account is already authenticated.
-
-    Returns:
-        (value, source) where source is one of:
-          "claude_cli" — authenticated via Claude Code session (value = "__claude_cli__")
-          "explicit"   — key supplied via --api-key
-          "env"        — key found in ANTHROPIC_API_KEY env var
-          "dotenv"     — key loaded from .env file
-          "none"       — no key available
+    New code should use discover_provider() directly.
     """
-    # Claude Code authenticated session — first priority, zero config required
-    if os.environ.get("CLAUDECODE") == "1" and _claude_cli_available():
+    from apitf.providers.claude_cli import ClaudeCLIProvider
+    from apitf.providers.anthropic import AnthropicProvider
+    if ClaudeCLIProvider.available():
         return "__claude_cli__", "claude_cli"
-    if explicit_key:
-        return explicit_key, "explicit"
-    env_key = os.environ.get("ANTHROPIC_API_KEY")
-    if env_key:
-        return env_key, "env"
-    dotenv_key = _load_dotenv()
-    if dotenv_key:
-        return dotenv_key, "dotenv"
+    if AnthropicProvider.available(explicit_key=explicit_key):
+        import os
+        key = explicit_key or os.environ.get("ANTHROPIC_API_KEY")
+        return key, "env"
+    provider = discover_provider(explicit_key)
+    if provider is not None:
+        return "__provider__", type(provider).__name__.lower()
     return None, "none"
 
 
-def _get_client(model: str | None = None, api_key: str | None = None):
-    """Return (anthropic.Anthropic(), model) or (None, None) if unavailable.
-
-    When source is claude_cli, returns (None, None) — callers must use _claude_cli_call().
-    """
-    key, source = detect_ai_mode(api_key)
-    if not key or source == "claude_cli":
-        return None, None
-    try:
-        import anthropic
-        return anthropic.Anthropic(api_key=key), model or ADVISOR_MODEL
-    except ImportError:
-        logger.warning("[eval_loop] 'anthropic' package not installed — pip install anthropic")
-        return None, None
+def _claude_cli_call(prompt: str, model: str) -> str:
+    """Backward-compatible shim — routes through ClaudeCLIProvider."""
+    from apitf.providers.claude_cli import ClaudeCLIProvider
+    return ClaudeCLIProvider().generate(prompt, model)
 
 
 def _strip_fences(text: str) -> str:
@@ -203,20 +125,11 @@ def _strip_fences(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _make_api_call(prompt: str, model: str, api_key: str | None) -> str:
-    """Route an API call through anthropic SDK or claude CLI depending on auth mode."""
-    _, source = detect_ai_mode(api_key)
-    if source == "claude_cli":
-        return _claude_cli_call(prompt, model)
-    client, resolved_model = _get_client(model, api_key=api_key)
-    if client is None:
-        raise RuntimeError("No API client available")
-    message = client.messages.create(
-        model=resolved_model,
-        max_tokens=MAX_RESPONSE_TOKENS,
-        system="You are a senior QA architect. Return structured JSON only.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return message.content[0].text
+    """Route an API call through the discovered provider."""
+    provider = discover_provider(api_key)
+    if provider is None:
+        raise RuntimeError("No LLM provider available")
+    return provider.generate(prompt, model)
 
 
 def review_phase(
@@ -228,14 +141,14 @@ def review_phase(
     Works with ANTHROPIC_API_KEY, .env file, or authenticated Claude Code session.
     Falls back to a stub result when no auth method is available.
     """
-    resolved_key, source = detect_ai_mode(api_key)
-    if not resolved_key:
-        logger.info("[reflector] No auth available — returning stub result")
+    provider = discover_provider(api_key)
+    if provider is None:
+        logger.info("[reflector] No provider available — returning stub result")
         return {
             "score": -1,
             "passed": False,
-            "deviations": ["No ANTHROPIC_API_KEY — live review skipped."],
-            "corrections": ["Set ANTHROPIC_API_KEY and re-run to get live Opus review."],
+            "deviations": ["No LLM provider — live review skipped."],
+            "corrections": ["Install a provider to enable live Opus review."],
             "category": "style",
         }
 
@@ -258,7 +171,7 @@ Return JSON only — no markdown fences, no prose:
   "category":    "<style | architecture | test-coverage | security>"
 }}"""
 
-    logger.info("[reflector] Sending %d-char prompt to %s (via %s)", len(prompt), ADVISOR_MODEL, source)
+    logger.info("[reflector] Sending %d-char prompt to %s", len(prompt), ADVISOR_MODEL)
     try:
         raw = _make_api_call(prompt, ADVISOR_MODEL, api_key)
     except Exception as exc:
@@ -313,14 +226,14 @@ def _reflect_test_file(
     Routes through claude CLI (no key needed) when running inside Claude Code,
     otherwise uses the anthropic SDK with ANTHROPIC_API_KEY / .env key.
     """
-    resolved_key, source = detect_ai_mode(api_key)
-    if not resolved_key:
-        print("[reflector] No auth available — skipping reflector review.", file=sys.stderr)
+    provider = discover_provider(api_key)
+    if provider is None:
+        print("[reflector] No provider available — skipping reflector review.", file=sys.stderr)
         return {
             "score": -1,
             "passed": False,
-            "deviations": ["No ANTHROPIC_API_KEY — reflector skipped."],
-            "corrections": ["Set ANTHROPIC_API_KEY or run inside Claude Code to enable live Opus review."],
+            "deviations": ["No LLM provider — reflector skipped."],
+            "corrections": ["Install a provider (see apitf-run startup message) to enable reflector review."],
             "category": "n/a",
         }
 
@@ -343,7 +256,7 @@ Score 0-100 across these dimensions (each worth up to ~15 pts):
 - Zero hardcoded values — all thresholds and URLs from env_config
 - HttpClient used as context manager (never raw requests)
 - @pytest.mark.flaky on every live HTTP call; NOT on xfail or HTTPS-only tests
-- xfail(strict=True) with SLA_FAILURE_EXCEPTIONS for documented API bugs
+- xfail(strict=True, raises=SLA_FAILURE_EXCEPTIONS) ONLY when there is a confirmed documented bug (BUG-NNN ID known); do NOT deduct points if there are no confirmed bugs — adding xfail without a real bug causes XPASS failures
 - assert result.passed, result.errors pattern for all validator calls
 
 Return JSON only — no markdown fences:
@@ -355,7 +268,7 @@ Return JSON only — no markdown fences:
   "category": "test-coverage"
 }}"""
 
-    print(f"[reflector] Sending {test_file.name} to {ADVISOR_MODEL} for review (via {source}) …")
+    print(f"[reflector] Sending {test_file.name} to {ADVISOR_MODEL} for review …")
     try:
         raw = _make_api_call(prompt, ADVISOR_MODEL, api_key)
         text = _strip_fences(raw)
@@ -423,8 +336,8 @@ def _ai_fix_structural(
     api_key: str | None = None,
 ) -> bool:
     """Re-generate the test file to fix structural errors. Returns True on success."""
-    client, effective_model = _get_client(model, api_key=api_key)
-    if client is None:
+    provider = discover_provider(api_key)
+    if provider is None:
         return False
 
     current_src = test_file.read_text(encoding="utf-8")
@@ -443,14 +356,9 @@ def _ai_fix_structural(
 Fix ONLY the structural errors. Do not change test logic, assertions, or techniques covered.
 Output ONLY the corrected Python source — no markdown fences, no prose."""
 
-    print(f"[eval-loop] Calling {effective_model} to fix structural failures …")
+    print(f"[eval-loop] Calling {model} to fix structural failures …")
     try:
-        message = client.messages.create(
-            model=effective_model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        src = _strip_fences(message.content[0].text)
+        src = _strip_fences(provider.generate(prompt, model))
         test_file.write_text(src, encoding="utf-8")
         print(f"[eval-loop] Test file rewritten: {test_file.name}")
         return True
@@ -496,15 +404,6 @@ curl -s "https://restcountries.com/v3.1/alpha/ZZZ999" | python3 -m json.tool
 
 ---"""
 
-
-def _next_bug_id(project_root: Path) -> str:
-    """Return the next sequential BUG-NNN ID by scanning BUG_REPORT.md."""
-    report = project_root / "BUG_REPORT.md"
-    if not report.exists():
-        return "BUG-001"
-    ids = re.findall(r"BUG-(\d{3})", report.read_text(encoding="utf-8"))
-    n = max((int(i) for i in ids), default=0) + 1
-    return f"BUG-{n:03d}"
 
 
 def _generate_bug_entry(
@@ -562,9 +461,9 @@ def _reflect_bug_entry(
     api_key: str | None = None,
 ) -> ReviewResult:
     """Opus reviews a generated bug report entry against the gold-standard rubric."""
-    resolved_key, source = detect_ai_mode(api_key)
-    if not resolved_key:
-        return {"score": -1, "passed": False, "deviations": ["No auth"], "corrections": [], "category": "bug-report"}
+    provider = discover_provider(api_key)
+    if provider is None:
+        return {"score": -1, "passed": False, "deviations": ["No provider"], "corrections": [], "category": "bug-report"}
 
     prompt = f"""You are reviewing a bug report entry for an API test framework.
 
@@ -593,7 +492,7 @@ Return JSON only — no markdown fences:
   "category": "bug-report"
 }}"""
 
-    print(f"[bug-reporter] Sending {bug_id} to {model} for review (via {source}) …")
+    print(f"[bug-reporter] Sending {bug_id} to {model} for review (via claude_cli) …")
     try:
         raw = _make_api_call(prompt, model, api_key)
         return json.loads(_strip_fences(raw))
@@ -611,29 +510,36 @@ def generate_bug_report_loop(
     model: str,
     reflector_model: str = ADVISOR_MODEL,
     api_key: str | None = None,
+    bug_report_path: Path | None = None,
 ) -> list[str]:
-    """For each QUALITY_FAILURE: generate → Opus reflect → Sonnet correct → append to BUG_REPORT.md.
+    """For each QUALITY_FAILURE: generate → Opus reflect → Sonnet correct → append to bug report.
 
+    bug_report_path: where to write entries. Defaults to project_root/BUG_REPORT.md.
     Returns list of bug IDs written. Does NOT file GitHub issues or add xfail markers —
     those remain manual steps enforced by verify_bug_markers.py.
     """
-    resolved_key, _ = detect_ai_mode(api_key)
-    if not resolved_key:
-        print("[bug-reporter] No auth — skipping auto bug report generation.", file=sys.stderr)
+    if discover_provider(api_key) is None:
+        print("[bug-reporter] No provider — skipping auto bug report generation.", file=sys.stderr)
         return []
 
-    report_path = project_root / "BUG_REPORT.md"
+    report_path = bug_report_path if bug_report_path is not None else project_root / "BUG_REPORT.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     written_ids: list[str] = []
 
+    # Compute starting ID once; increment unconditionally so degenerate writes don't reuse IDs.
+    _existing = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+    next_n = max((int(i) for i in re.findall(r"BUG-(\d{3})", _existing)), default=0) + 1
+
     for failure in failures:
-        bug_id = _next_bug_id(project_root)
+        bug_id = f"BUG-{next_n:03d}"
+        next_n += 1
         print(f"\n[bug-reporter] ── Generating {bug_id} for {failure.test_name} ──")
 
-        entry = _generate_bug_entry(bug_id, env, base_url, failure, pytest_output, model, resolved_key)
+        entry = _generate_bug_entry(bug_id, env, base_url, failure, pytest_output, model, api_key)
         entry = _strip_fences(entry)
 
         for round_num in range(1, REFLECTOR_MAX_ITER + 2):
-            review = _reflect_bug_entry(bug_id, entry, model=reflector_model, api_key=resolved_key)
+            review = _reflect_bug_entry(bug_id, entry, model=reflector_model, api_key=api_key)
             score = review.get("score", -1)
             passed = review.get("passed", False) and score >= REFLECTOR_PASS_THRESHOLD
             if score >= 0:
@@ -669,7 +575,7 @@ Rules:
 Output ONLY the corrected markdown entry starting with `### {bug_id}` — no prose."""
 
             try:
-                fixed = _make_api_call(fix_prompt, model, resolved_key)
+                fixed = _make_api_call(fix_prompt, model, api_key)
                 entry = _strip_fences(fixed)
             except Exception as exc:
                 logger.warning("[bug-reporter] Correction failed: %s", exc)
@@ -704,6 +610,7 @@ def eval_loop(
     model: str = "claude-sonnet-4-6",
     reflector_model: str = ADVISOR_MODEL,
     api_key: str | None = None,
+    bug_report_path: Path | None = None,
 ) -> list[EvalResult]:
     """Run pytest in a loop, auto-fixing STRUCTURAL failures each iteration.
 
@@ -720,18 +627,11 @@ def eval_loop(
     Returns:
         List of EvalResult, one per iteration.
     """
-    resolved_key, key_source = detect_ai_mode(api_key)
-    if resolved_key:
-        mode_label = {
-            "claude_cli": "Claude Code session (auto-detected)",
-            "explicit": "explicit --api-key",
-            "env": "ANTHROPIC_API_KEY env var (auto-detected)",
-            "dotenv": ".env file (auto-detected)",
-        }.get(key_source, key_source)
-        print(f"[eval-loop] AI mode: {mode_label}")
+    _provider = discover_provider(api_key)
+    if _provider is not None:
+        print(f"[eval-loop] AI provider: {_provider.models.label}")
     else:
-        print("[eval-loop] AI mode: none — structural fixes and reflector review disabled")
-        print("            Set ANTHROPIC_API_KEY or pass --api-key to enable.")
+        print("[eval-loop] AI provider: none — structural fixes and reflector review disabled")
 
     results: list[EvalResult] = []
     last_output = ""
@@ -775,7 +675,7 @@ def eval_loop(
 
         if structural and iteration < max_iter:
             print(f"[eval-loop] {len(structural)} STRUCTURAL failure(s) — auto-fixing …")
-            fixed = _ai_fix_structural(env, test_file, output, model, api_key=resolved_key)
+            fixed = _ai_fix_structural(env, test_file, output, model, api_key=api_key)
             if not fixed:
                 print(
                     "[eval-loop] No API key — cannot auto-fix structural errors.\n"
@@ -810,7 +710,8 @@ def eval_loop(
                 project_root=_project_root,
                 model=model,
                 reflector_model=reflector_model,
-                api_key=resolved_key,
+                api_key=api_key,
+                bug_report_path=bug_report_path,
             )
 
             print("\n  Next steps for each bug:")
@@ -831,7 +732,7 @@ def eval_loop(
     # ── Reflector + correction feedback loop ───────────────────────────────
     for reflector_round in range(1, REFLECTOR_MAX_ITER + 2):
         print(f"\n[reflector] ── Opus reflector review (round {reflector_round}) ──────────────")
-        review = _reflect_test_file(env, test_file, last_output, reflector_model, api_key=resolved_key)
+        review = _reflect_test_file(env, test_file, last_output, reflector_model, api_key=api_key)
         score = review.get("score", -1)
         passed_review = review.get("passed", False) and score >= REFLECTOR_PASS_THRESHOLD
         print(f"[reflector] Score   : {score}/100")
@@ -854,7 +755,7 @@ def eval_loop(
             break
 
         corrections = review.get("corrections", [])
-        if not corrections or not resolved_key:
+        if not corrections or discover_provider(api_key) is None:
             break
 
         # Apply Opus corrections via AI re-generation
@@ -888,11 +789,15 @@ Framework rules (must not be broken):
 - Do NOT use cfg["boundaries"] or cfg["insecure_base_url"] — those keys don't exist
 - Boundary IDs: use literal integers (id=1 minimum, id=9999 out-of-range)
 - Full type hints on every function
+- SLA_FAILURE_EXCEPTIONS import: `from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS`
+  NEVER `from apitf import SLA_FAILURE_EXCEPTIONS` (wrong path)
+- NEVER add @pytest.mark.xfail to a performance test unless there is a confirmed bug with a BUG-NNN ID
+  Adding xfail with no real bug causes XPASS (strict=True fails when the test passes) — this is worse than no xfail
 
 BEGIN YOUR RESPONSE WITH PYTHON CODE NOW:"""
 
         try:
-            fixed_src = _make_api_call(fix_prompt, model, resolved_key)
+            fixed_src = _make_api_call(fix_prompt, model, api_key)
             fixed_src = _strip_fences(fixed_src)
             test_file.write_text(fixed_src, encoding="utf-8")
             print(f"[reflector] Test file updated — re-running pytest …")
@@ -981,10 +886,10 @@ def _reflect_test_plan(
     api_key: str | None = None,
 ) -> ReviewResult:
     """Opus reviews the generated test plan against the gold-standard rubric."""
-    resolved_key, source = detect_ai_mode(api_key)
-    if not resolved_key:
-        print("[plan-reflector] No auth — skipping plan review.", file=sys.stderr)
-        return {"score": -1, "passed": False, "deviations": ["No auth"], "corrections": [], "category": "n/a"}
+    provider = discover_provider(api_key)
+    if provider is None:
+        print("[plan-reflector] No provider — skipping plan review.", file=sys.stderr)
+        return {"score": -1, "passed": False, "deviations": ["No provider"], "corrections": [], "category": "n/a"}
 
     plan_text = plan_path.read_text(encoding="utf-8")
     prompt = f"""You are a senior QA architect reviewing an auto-generated test plan for the `{env}` API environment.
@@ -1017,7 +922,7 @@ Return JSON only — no markdown fences:
   "category": "test-plan"
 }}"""
 
-    print(f"[plan-reflector] Sending {plan_path.name} to {model} for review (via {source}) …")
+    print(f"[plan-reflector] Sending {plan_path.name} to {model} for review …")
     try:
         raw = _make_api_call(prompt, model, api_key)
         text = _strip_fences(raw)
@@ -1040,8 +945,6 @@ def reflect_test_plan_loop(
     Mirrors the eval_loop reflector pattern but for markdown rather than pytest files.
     Up to `max_iter` rounds of: score → review → apply corrections → re-score.
     """
-    resolved_key, _source = detect_ai_mode(api_key)
-
     structural = _score_test_plan_structurally(plan_path)
     print(
         f"[plan-reflector] Structural score: {structural['score']}/100 "
@@ -1073,7 +976,7 @@ def reflect_test_plan_loop(
             break
 
         corrections = review.get("corrections", [])
-        if not corrections or not resolved_key:
+        if not corrections or discover_provider(api_key) is None:
             break
 
         print(f"[plan-reflector] Applying {len(corrections)} correction(s) via {model} …")
@@ -1091,7 +994,7 @@ def reflect_test_plan_loop(
 Output ONLY the corrected markdown — no prose, no fences."""
 
         try:
-            fixed = _make_api_call(fix_prompt, model, resolved_key)
+            fixed = _make_api_call(fix_prompt, model, api_key)
             fixed = _strip_fences(fixed)
             plan_path.write_text(fixed, encoding="utf-8")
             structural = _score_test_plan_structurally(plan_path)

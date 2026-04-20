@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pdfplumber
 
-from apitf.spec_parser.base_parser import BaseSpecParser, EndpointSpec
+from apitf.spec_parser.base_parser import BaseSpecParser, EndpointSpec, _resource_from_path
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,7 @@ class PDFParser(BaseSpecParser):
                         method=method,
                         response_fields=response_fields,
                         thresholds=_UNRESOLVED_THRESHOLDS,
+                        resource_name=_resource_from_path(path),
                     )
                 )
             except (IndexError, ValueError) as exc:

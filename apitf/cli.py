@@ -26,9 +26,39 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import textwrap
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Parallel pipeline types
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ResourceResult:
+    resource_name: str
+    passed: int
+    failed: int
+    bug_count: int
+    bug_report_path: Path
+    errors: list[str] = field(default_factory=list)
+
+
+def _group_specs_by_resource(specs: list) -> dict[str, list]:
+    """Group EndpointSpec objects by resource_name (first path segment).
+
+    Single-resource specs (resource_name='' or 'default') fall into one group,
+    preserving the existing sequential behaviour with no filename changes.
+    """
+    groups: dict[str, list] = {}
+    for s in specs:
+        key = s.resource_name or "default"
+        groups.setdefault(key, []).append(s)
+    return groups
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +123,7 @@ def cmd_parse(argv: list[str] | None = None) -> None:
                 "response_fields": s.response_fields,
                 "thresholds": s.thresholds,
                 "description": s.description,
+                "resource_name": s.resource_name,
             }))
     else:
         print(f"\nExtracted {len(specs)} endpoint(s) from {source.name}\n")
@@ -184,7 +215,7 @@ import pytest
 from apitf.http_client import HttpClient
 from apitf.validators.{module_name}_validator import {class_name}
 
-pytestmark = [pytest.mark.{env_name}, allure.suite("{env_name}")]
+pytestmark = [pytest.mark.{env_name}, allure.suite("{allure_suite}")]
 
 
 @allure.title("TC-001: {env_name} probe_path returns 200")
@@ -276,45 +307,27 @@ def _ai_generate_tests(
     specs: list,
     model: str = "claude-sonnet-4-6",
     api_key: str | None = None,
+    allure_suite: str | None = None,
 ) -> str | None:
     """Call Claude to generate a full 7-technique test suite.
 
-    Key resolution priority (auto-detect first):
-      1. Explicit api_key argument (from --api-key flag)
-      2. ANTHROPIC_API_KEY environment variable (auto-detected)
-      3. Neither found → returns None, caller falls back to 5-test stub
+    Provider auto-discovery order: Claude Code CLI → Anthropic SDK.
+    Falls back to 5-test stub if no provider is found.
     """
-    from apitf.eval_loop import detect_ai_mode
-    resolved_key, key_source = detect_ai_mode(api_key)
+    from apitf.providers import discover_provider
+    provider = discover_provider(api_key)
 
-    if not resolved_key:
+    if provider is None:
         print(
-            "[apitf] AI generation: no key found "
-            "(checked --api-key flag and ANTHROPIC_API_KEY env var).\n"
-            "        Falling back to 5-test stub. "
-            "Set ANTHROPIC_API_KEY or pass --api-key to enable full suite.",
+            "[apitf] AI generation: no provider found — falling back to 5-test stub.\n"
+            "        Run inside Claude Code or set ANTHROPIC_API_KEY to enable full suite.",
             flush=True,
         )
         return None
 
-    source_label = {
-        "claude_cli": "Claude Code session",
-        "explicit": "explicit --api-key",
-        "env": "ANTHROPIC_API_KEY env var",
-        "dotenv": ".env file",
-    }.get(key_source, key_source)
-    print(f"[apitf] AI generation: {source_label} → calling {model} …", flush=True)
+    print(f"[apitf] AI generation: {provider.models.label} → calling {model} …", flush=True)
 
-    try:
-        import anthropic
-    except ImportError:
-        print(
-            "[apitf] AI generation: 'anthropic' package not installed — pip install anthropic.\n"
-            "        Falling back to 5-test stub.",
-            flush=True,
-        )
-        return None
-
+    _allure_suite = allure_suite or env
     endpoints_summary = "\n".join(
         f"  {s.method} {s.path}  fields: {', '.join(s.response_fields) or '(use REQUIRED_FIELDS)'}"
         for s in specs
@@ -332,7 +345,7 @@ Endpoints extracted from spec:
 {endpoints_summary}
 
 Framework rules (non-negotiable):
-- pytestmark = [pytest.mark.{env}, allure.suite("{env}")]
+- pytestmark = [pytest.mark.{env}, allure.suite("{_allure_suite}")]
 - @allure.title("TC-XXX: ...") on every test
 - HttpClient from apitf.http_client — never raw requests
 
@@ -383,18 +396,7 @@ Techniques to cover (at least one test each):
 Output ONLY the Python source for tests/test_{module_name}.py. No prose, no markdown fences."""
 
     try:
-        from apitf.eval_loop import _claude_cli_call
-        if key_source == "claude_cli":
-            src = _claude_cli_call(prompt, model)
-        else:
-            import anthropic
-            client = anthropic.Anthropic(api_key=resolved_key)
-            message = client.messages.create(
-                model=model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            src = message.content[0].text.strip()
+        src = provider.generate(prompt, model)
         from apitf.eval_loop import _strip_fences
         src = _strip_fences(src)
         print("[apitf] AI generation: full 7-technique test suite generated.", flush=True)
@@ -474,7 +476,7 @@ def cmd_scaffold(argv: list[str] | None = None) -> None:
     base_host = base_url.replace("https://", "").split("/")[0]
     test_src = _TEST_STUB.format(
         env_name=env, class_name=class_name, module_name=module_name,
-        base_host=base_host,
+        base_host=base_host, allure_suite=env,
     )
     if args.ai_generate:
         ai_src = _ai_generate_tests(
@@ -523,15 +525,17 @@ def _generate_test_plan(
     all_fields: list[str],
     specs: list,
     project_root: Path,
+    plan_name: str | None = None,
 ) -> Path:
-    """Write a TEST_PLAN.md-style document to test_plans/<env>_test_plan.md.
+    """Write a TEST_PLAN.md-style document to test_plans/<plan_name>_test_plan.md.
 
+    plan_name defaults to env; pass '{env}_{resource}' for per-resource plans.
     Covers 10 techniques with per-endpoint TC generation, P1/P2/P3 priority,
     risk & mitigations, and acceptance criteria — matching the gold standard.
     """
     plan_dir = project_root / "test_plans"
     plan_dir.mkdir(exist_ok=True)
-    plan_path = plan_dir / f"{env}_test_plan.md"
+    plan_path = plan_dir / f"{plan_name or env}_test_plan.md"
 
     prefix = env[:3].upper()
     validator_class = f"{env.replace('_', ' ').title().replace(' ', '')}Validator"
@@ -838,6 +842,151 @@ def _wire_pytest_ini_marker(env: str, project_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Per-resource pipeline worker (used by ThreadPoolExecutor in cmd_run)
+# ---------------------------------------------------------------------------
+
+def _run_resource_pipeline(
+    resource_name: str,
+    resource_specs: list,
+    env: str,
+    base_url: str,
+    project_root: Path,
+    sample: bool,
+    model: str,
+    reflector_model: str,
+    max_iter: int,
+    api_key: str | None,
+    bug_report_path: Path,
+) -> ResourceResult:
+    """Scaffold → eval_loop pipeline for one resource group.
+
+    Writes only to resource-scoped files — safe to call concurrently for
+    different resource names.  bug_report_path is isolated per resource so
+    no locking is needed.
+    """
+    from apitf.eval_loop import eval_loop as _eval_loop
+    from apitf.eval_loop import reflect_test_plan_loop as _reflect_plan
+
+    tag = f"[{env}/{resource_name}]"
+    print(f"{tag} Starting pipeline …", flush=True)
+
+    resource_module = f"{env.replace('-', '_')}_{resource_name}"
+    resource_class = "".join(w.title() for w in resource_module.split("_")) + "Validator"
+    probe_path = resource_specs[0].path
+
+    all_fields: list[str] = []
+    for s in resource_specs:
+        for f in s.response_fields:
+            if f not in all_fields:
+                all_fields.append(f)
+
+    if sample:
+        all_fields = _sample_fields(base_url, probe_path, all_fields)
+
+    fields_repr = ", ".join(f'"{f}"' for f in all_fields[:10])
+    if all_fields:
+        fields_repr += ","
+
+    validator_src = _VALIDATOR_STUB.format(
+        env_name=env, class_name=resource_class, fields_repr=fields_repr,
+    )
+
+    allure_suite = f"{env}_{resource_name}"
+    test_src = _ai_generate_tests(
+        env, resource_class, resource_module, base_url, probe_path, all_fields,
+        resource_specs, model, api_key=api_key, allure_suite=allure_suite,
+    )
+    if test_src is None:
+        base_host = base_url.replace("https://", "").split("/")[0]
+        test_src = _TEST_STUB.format(
+            env_name=env, class_name=resource_class, module_name=resource_module,
+            base_host=base_host, allure_suite=allure_suite,
+        )
+
+    validator_path = project_root / "apitf" / "validators" / f"{resource_module}_validator.py"
+    test_path = project_root / "tests" / f"test_{resource_module}.py"
+    validator_path.write_text(validator_src, encoding="utf-8")
+    test_path.write_text(test_src, encoding="utf-8")
+    print(f"{tag} Written: {validator_path.name}  {test_path.name}", flush=True)
+
+    plan_path = _generate_test_plan(
+        env, base_url, probe_path, all_fields, resource_specs, project_root,
+        plan_name=allure_suite,
+    )
+    _reflect_plan(env=env, plan_path=plan_path, model=model, reflector_model=reflector_model, api_key=api_key)
+
+    bug_report_path.parent.mkdir(parents=True, exist_ok=True)
+    eval_results = _eval_loop(
+        env=env,
+        test_file=test_path,
+        max_iter=max_iter,
+        model=model,
+        reflector_model=reflector_model,
+        api_key=api_key,
+        bug_report_path=bug_report_path,
+    )
+
+    final = eval_results[-1]
+    bug_count = 0
+    if bug_report_path.exists():
+        bug_count = len(re.findall(r"BUG-\d{3}", bug_report_path.read_text(encoding="utf-8")))
+
+    print(f"{tag} Done — passed={final.passed} failed={final.failed} bugs={bug_count}", flush=True)
+    return ResourceResult(
+        resource_name=resource_name,
+        passed=final.passed,
+        failed=final.failed,
+        bug_count=bug_count,
+        bug_report_path=bug_report_path,
+    )
+
+
+def _merge_resource_bug_reports(env: str, bugs_dir: Path, master: Path) -> int:
+    """Append all bugs/BUG_REPORT_<env>_*.md entries into the master BUG_REPORT.md.
+
+    Renumbers BUG IDs sequentially from the next available number in master.
+    Returns the count of entries merged.
+    """
+    parts = sorted(bugs_dir.glob(f"BUG_REPORT_{env}_*.md"))
+    if not parts:
+        return 0
+
+    all_entries: list[str] = []
+    for part in parts:
+        text = part.read_text(encoding="utf-8")
+        for raw in re.split(r"\n(?=### BUG-)", text):
+            raw = raw.strip()
+            if raw.startswith("### BUG-"):
+                all_entries.append(raw)
+
+    if not all_entries:
+        return 0
+
+    existing = master.read_text(encoding="utf-8") if master.exists() else ""
+    next_n = max((int(i) for i in re.findall(r"BUG-(\d{3})", existing)), default=0) + 1
+
+    renumbered: list[str] = []
+    for entry in all_entries:
+        old_match = re.match(r"### (BUG-\d{3})", entry)
+        new_id = f"BUG-{next_n:03d}"
+        if old_match:
+            entry = entry.replace(old_match.group(1), new_id)
+        renumbered.append(entry)
+        next_n += 1
+
+    merged = "\n\n".join(renumbered)
+    if "## Open Bugs" in existing:
+        insert_pos = existing.index("## Open Bugs") + len("## Open Bugs\n")
+        updated = existing[:insert_pos] + "\n" + merged + "\n\n" + existing[insert_pos:]
+    else:
+        updated = existing.rstrip() + "\n\n" + merged + "\n"
+
+    master.write_text(updated, encoding="utf-8")
+    print(f"[apitf-run] Merged {len(renumbered)} bug entries from {bugs_dir} → {master.name}")
+    return len(renumbered)
+
+
+# ---------------------------------------------------------------------------
 # apitf-run  (full workflow: parse → scaffold → eval loop → reflector)
 # ---------------------------------------------------------------------------
 
@@ -872,6 +1021,8 @@ def cmd_run(argv: list[str] | None = None) -> None:
                    help="Model for Opus reflector review (default: claude-opus-4-7)")
     p.add_argument("--max-iter", type=int, default=3, metavar="N",
                    help="Max eval-loop iterations (default: 3)")
+    p.add_argument("--no-parallel", action="store_true",
+                   help="Disable parallel per-resource workers; run sequentially (useful for debugging)")
     args = p.parse_args(argv)
 
     source = args.spec_file.resolve()
@@ -882,24 +1033,13 @@ def cmd_run(argv: list[str] | None = None) -> None:
     env = args.env
     project_root = Path(__file__).parent.parent
 
-    # ── AI mode detection (upfront, before any steps) ──────────────────────
-    from apitf.eval_loop import detect_ai_mode
-    resolved_key, key_source = detect_ai_mode(args.api_key)
-    if resolved_key:
-        ai_label = {
-            "claude_cli": "Claude Code session (auto-detected via CLAUDECODE + claude CLI)",
-            "explicit": "explicit --api-key",
-            "env": "ANTHROPIC_API_KEY env var (auto-detected)",
-            "dotenv": ".env file in project root (auto-detected)",
-        }.get(key_source, key_source)
-        print(f"[apitf-run] AI mode   : {ai_label}", flush=True)
-        print(f"[apitf-run] Gen model : {args.model}", flush=True)
-        print(f"[apitf-run] Reflector : {args.reflector_model}", flush=True)
+    # ── Provider detection (upfront, before any steps) ─────────────────────
+    from apitf.providers import discover_provider, _NO_AI_MESSAGE
+    _provider = discover_provider(args.api_key)
+    if _provider is not None:
+        print(f"[apitf-run] AI provider : {_provider.models.label}", flush=True)
     else:
-        print("[apitf-run] AI mode   : none — no key found", flush=True)
-        print("[apitf-run]             Checked: --api-key flag, ANTHROPIC_API_KEY env var, .env file", flush=True)
-        print("[apitf-run]             Test stub: 5-test baseline. Reflector: skipped.", flush=True)
-        print("[apitf-run]             To enable: export ANTHROPIC_API_KEY=sk-ant-... OR add to .env", flush=True)
+        print(_NO_AI_MESSAGE, flush=True)
 
     # ── Step 1: Parse ──────────────────────────────────────────────────────
     print(f"\n{'='*60}", flush=True)
@@ -908,18 +1048,97 @@ def cmd_run(argv: list[str] | None = None) -> None:
     specs = _specs_from(source)
     print(f"[apitf-run] Extracted {len(specs)} endpoint(s)", flush=True)
 
-    # ── Step 2: Scaffold ───────────────────────────────────────────────────
+    base_url = args.base_url or specs[0].base_url
+    if args.base_url:
+        print(f"[apitf-run] Using override base URL: {base_url}", flush=True)
+
+    # Wire shared config before any workers touch files
+    _wire_environments_yaml(env, base_url, args.probe_path or specs[0].path, project_root)
+    _wire_pytest_ini_marker(env, project_root)
+
+    # ── Step 2: Scaffold (parallel per resource, or sequential fallback) ───
     print(f"\n{'='*60}", flush=True)
     print(f"[apitf-run] Step 2/4 — Scaffold: env='{env}'", flush=True)
     print(f"{'='*60}", flush=True)
 
-    class_name = "".join(w.title() for w in env.replace("-", "_").split("_")) + "Validator"
-    module_name = env.replace("-", "_")
-    base_url = args.base_url or specs[0].base_url
-    probe_path = args.probe_path or (specs[0].path if specs else "/")
+    resource_groups = _group_specs_by_resource(specs)
+    n_resources = len(resource_groups)
+    use_parallel = n_resources > 1 and not args.no_parallel
 
-    if args.base_url:
-        print(f"[apitf-run] Using override base URL: {base_url}", flush=True)
+    if use_parallel:
+        print(
+            f"[apitf-run] {n_resources} resource group(s) detected "
+            f"({', '.join(resource_groups)})"
+            f" — running in parallel (max 4 workers)",
+            flush=True,
+        )
+        bugs_dir = project_root / "bugs"
+        bugs_dir.mkdir(exist_ok=True)
+        resource_results: dict[str, ResourceResult] = {}
+        max_workers = min(n_resources, 4)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(
+                    _run_resource_pipeline,
+                    resource_name=rname,
+                    resource_specs=rspecs,
+                    env=env,
+                    base_url=base_url,
+                    project_root=project_root,
+                    sample=args.sample,
+                    model=args.model,
+                    reflector_model=args.reflector_model,
+                    max_iter=args.max_iter,
+                    api_key=args.api_key,
+                    bug_report_path=bugs_dir / f"BUG_REPORT_{env}_{rname}.md",
+                ): rname
+                for rname, rspecs in resource_groups.items()
+            }
+            for future in as_completed(futures):
+                rname = futures[future]
+                try:
+                    resource_results[rname] = future.result()
+                except Exception as exc:
+                    print(f"[apitf-run] Worker '{rname}' raised: {exc}", file=sys.stderr)
+                    resource_results[rname] = ResourceResult(
+                        resource_name=rname, passed=0, failed=0, bug_count=0,
+                        bug_report_path=bugs_dir / f"BUG_REPORT_{env}_{rname}.md",
+                        errors=[str(exc)],
+                    )
+
+        # Sequential merge into master BUG_REPORT.md
+        master_report = project_root / "BUG_REPORT.md"
+        merged = _merge_resource_bug_reports(env, bugs_dir, master_report)
+        if merged:
+            print(f"[apitf-run] BUG_REPORT.md updated ({merged} new entries)")
+
+        # ── Final report (parallel) ────────────────────────────────────────
+        total_passed = sum(r.passed for r in resource_results.values())
+        total_failed = sum(r.failed for r in resource_results.values())
+        total_bugs = sum(r.bug_count for r in resource_results.values())
+        all_clean = all(r.failed == 0 and not r.errors for r in resource_results.values())
+
+        print(f"\n{'='*60}")
+        print(f"[apitf-run] Step 4/4 — Final Report  (env: {env})")
+        print(f"{'='*60}")
+        print(f"  Resources    : {n_resources} ({', '.join(resource_results)})")
+        print(f"  Total passed : {total_passed}")
+        print(f"  Total failed : {total_failed}")
+        print(f"  Total bugs   : {total_bugs}")
+        print(f"  Final state  : {'CLEAN ✓' if all_clean else 'FAILURES REMAIN ✗'}")
+        for rname, rr in sorted(resource_results.items()):
+            status = "✓" if rr.failed == 0 and not rr.errors else "✗"
+            print(f"    [{status}] {rname}: passed={rr.passed} failed={rr.failed} bugs={rr.bug_count}")
+            for err in rr.errors:
+                print(f"        error: {err}")
+        print(f"\n  Manually re-run: pytest --env {env} -v")
+        sys.exit(0 if all_clean else 1)
+
+    # ── Sequential path (single resource group or --no-parallel) ──────────
+    module_name = env.replace("-", "_")
+    class_name = "".join(w.title() for w in module_name.split("_")) + "Validator"
+    probe_path = args.probe_path or (specs[0].path if specs else "/")
 
     all_fields: list[str] = []
     for s in specs:
@@ -939,18 +1158,16 @@ def cmd_run(argv: list[str] | None = None) -> None:
     )
     base_host = base_url.replace("https://", "").split("/")[0]
 
-    # Always attempt AI-generate first; fall back to stub if no key
     test_src = _ai_generate_tests(
         env, class_name, module_name, base_url, probe_path, all_fields, specs,
-        args.model, api_key=resolved_key,
+        args.model, api_key=args.api_key, allure_suite=env,
     )
     if test_src is None:
         test_src = _TEST_STUB.format(
             env_name=env, class_name=class_name, module_name=module_name,
-            base_host=base_host,
+            base_host=base_host, allure_suite=env,
         )
 
-    # Write files into project dirs
     validator_path = project_root / "apitf" / "validators" / f"{module_name}_validator.py"
     test_path = project_root / "tests" / f"test_{module_name}.py"
 
@@ -962,34 +1179,29 @@ def cmd_run(argv: list[str] | None = None) -> None:
     plan_path = _generate_test_plan(env, base_url, probe_path, all_fields, specs, project_root)
     print(f"[apitf-run] Test plan : {plan_path.relative_to(project_root)}")
 
-    from apitf.eval_loop import reflect_test_plan_loop
+    from apitf.eval_loop import reflect_test_plan_loop, eval_loop
     reflect_test_plan_loop(
         env=env,
         plan_path=plan_path,
         model=args.model,
         reflector_model=args.reflector_model,
-        api_key=resolved_key,
+        api_key=args.api_key,
     )
-
-    _wire_environments_yaml(env, base_url, probe_path, project_root)
-    _wire_pytest_ini_marker(env, project_root)
 
     # ── Step 3 + 4: Eval loop + Reflector ─────────────────────────────────
     print(f"\n{'='*60}")
     print(f"[apitf-run] Step 3/4 — Eval loop (max {args.max_iter} iterations)")
     print(f"{'='*60}")
 
-    from apitf.eval_loop import eval_loop
     results = eval_loop(
         env=env,
         test_file=test_path,
         max_iter=args.max_iter,
         model=args.model,
         reflector_model=args.reflector_model,
-        api_key=resolved_key,
+        api_key=args.api_key,
     )
 
-    # ── Final report ───────────────────────────────────────────────────────
     final = results[-1]
     print(f"\n{'='*60}")
     print(f"[apitf-run] Step 4/4 — Final Report  (env: {env})")

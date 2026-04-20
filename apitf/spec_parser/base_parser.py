@@ -16,6 +16,18 @@ class EndpointSpec:
     response_fields: list[str]
     thresholds: dict = field(default_factory=dict)
     description: str = ""
+    resource_name: str = ""
+
+
+def _resource_from_path(path: str) -> str:
+    """Derive resource name from the first non-template path segment.
+
+    Query strings are stripped so '/all?fields=name' → 'all'.
+    Examples: '/posts/1' → 'posts', '/users/{id}/todos' → 'users', '/' → 'default'
+    """
+    parts = [p for p in path.split("/") if p and not p.startswith("{")]
+    resource = parts[0] if parts else "default"
+    return resource.split("?")[0]
 
 
 class BaseSpecParser(ABC):

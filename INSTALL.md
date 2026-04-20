@@ -9,26 +9,43 @@
 | GitHub CLI (`gh`) | 2.x+ (for push/CI monitoring) |
 | `ANTHROPIC_API_KEY` | optional — enables AI test generation, eval loop, and Opus reflector |
 
-### Setting up your Anthropic API key (optional but recommended)
+### AI provider setup (optional but recommended)
 
-`apitf-run` auto-detects your key in this priority order:
+`apitf-run` auto-discovers the AI provider in this priority order:
 
-1. `--api-key sk-ant-...` flag (explicit, one-off)
-2. `ANTHROPIC_API_KEY` environment variable
-3. `.env` file in the project root
+1. **Claude Code session** — zero config. If you run inside a Claude Code terminal (`CLAUDECODE=1`), the framework calls the authenticated `claude` CLI automatically.
+2. **`ANTHROPIC_API_KEY` env var** — set once, persists across sessions.
+3. **`.env` file** — add `ANTHROPIC_API_KEY=sk-ant-...` to `.env` in the project root (gitignored).
 
-**Recommended — add to `.env`** (gitignored, persists across sessions):
+**Fastest setup inside Claude Code:** no configuration needed — just run `apitf-run`.
+
+**When running outside Claude Code:**
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+# or
 echo "ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE" >> .env
 ```
 
-**Or export for the current shell session:**
-```bash
-export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
-```
+Without any AI provider, `apitf-run` still works: it generates a 5-test baseline stub and
+skips AI generation, eval-loop structural fixes, and the Opus reflector review.
 
-Without a key, `apitf-run` still works: it generates a 5-test baseline stub and skips the
-AI generation, eval-loop structural fixes, and Opus reflector review.
+---
+
+## Platform Compatibility
+
+| Feature | macOS | Linux | Windows |
+|---------|-------|-------|---------|
+| Core test suite (`pytest --env countries/weather`) | ✅ | ✅ | ✅ |
+| `HttpClient` / HTTPS enforcement | ✅ | ✅ | ✅ |
+| Validators / `BaseValidator` | ✅ | ✅ | ✅ |
+| `apitf-parse` / `apitf-scaffold` CLI | ✅ | ✅ | ✅ |
+| Allure reporting (`allure-pytest`) | ✅ | ✅ | ✅ |
+| `allure serve` (web UI) | ✅ via brew | ✅ via Java | ✅ via Java |
+| Git pre-push hook (`setup_hooks.py`) | ✅ | ✅ | ✅ (no WSL needed) |
+| `ClaudeCLIProvider` (zero-config AI) | ✅ Claude Code terminal | ✅ Claude Code terminal | ✅ Claude Code desktop app |
+| `AnthropicProvider` (API key) | ✅ | ✅ | ✅ |
+
+All Python code uses `pathlib.Path` (no `os.path`), no `shell=True`, and Python-only scripts. Signal handling differences between Unix and Windows are handled automatically.
 
 ---
 
@@ -89,11 +106,18 @@ allure serve allure-results
 # Install Python via Homebrew (if not already installed)
 brew install python@3.11
 
-# Install Allure for HTML reports (optional)
+# Install Allure for HTML reports (optional — brew handles the Java dependency)
 brew install allure
 
 # Install GitHub CLI
 brew install gh && gh auth login
+```
+
+**Claude Code session (zero-config AI):** Open this repo in the Claude Code terminal app. `ClaudeCLIProvider` is auto-detected — no API key needed.
+
+**API key alternative:**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 ```
 
 ### Linux (Ubuntu / Debian)
@@ -105,10 +129,20 @@ sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip
 # Install GitHub CLI
 sudo apt-get install -y gh
 
-# Install Allure (optional)
+# Install Allure CLI (optional — requires Java for `allure serve`)
 sudo apt-get install -y default-jre
-wget https://github.com/allure-framework/allure2/releases/latest/download/allure-commandline.zip
-# Or via snap: sudo snap install allure
+sudo snap install allure          # or download from github.com/allure-framework/allure2/releases
+```
+
+> **Allure note:** `allure-pytest` (installed via pip with `.[test]`) generates the
+> `allure-results/` directory. The separate Allure CLI (`allure serve`) is only needed
+> to open the interactive HTML report in a browser. The test suite runs without it.
+
+**Claude Code session (zero-config AI):** Run this repo in a Claude Code terminal. `ClaudeCLIProvider` is auto-detected — no API key needed.
+
+**API key alternative:**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 ```
 
 ### Windows (PowerShell)
@@ -117,20 +151,33 @@ wget https://github.com/allure-framework/allure2/releases/latest/download/allure
 # Install Python from python.org or via winget
 winget install Python.Python.3.11
 
+# If venv activation is blocked by execution policy:
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
 # Install GitHub CLI
 winget install GitHub.cli
 gh auth login
 
-# Install Allure (optional — requires Java)
-# Download from https://github.com/allure-framework/allure2/releases
-# Add allure/bin to PATH
+# Install Allure CLI (optional — requires Java)
+# Download from https://github.com/allure-framework/allure2/releases and add allure/bin to PATH
+# Without the CLI, allure-results/ is still generated; you just can't run `allure serve`
 
 # All pytest commands work identically in PowerShell:
 pytest -v --alluredir=allure-results
 ```
 
-> **Windows note:** Git hooks installed by `python scripts/setup_hooks.py` use
-> Python (not bash), so they work without WSL or Git Bash.
+> **Git hooks:** `python scripts/setup_hooks.py` installs a Python pre-push hook — no WSL or Git Bash required.
+
+> **Signal handling:** The framework handles the Windows vs Unix signal difference automatically — no configuration needed.
+
+**Claude Code session (zero-config AI):** Open this repo in the Claude Code desktop app for Windows. `ClaudeCLIProvider` is auto-detected and the `claude` CLI is available inside that terminal. Alternatively, use WSL2 with the Linux Claude Code terminal.
+
+**API key alternative (works without Claude Code):**
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
+# or add to .env file in the project root (gitignored):
+Add-Content .env "ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE"
+```
 
 ---
 
