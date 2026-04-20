@@ -65,12 +65,26 @@
 
 | ID | Endpoint | Technique | Description | Input | Expected | Priority |
 |----|----------|-----------|-------------|-------|----------|----------|
-| TC-WEA-001 | `GET /forecast` | Positive | Valid forecast request returns 200 and JSON body | `latitude=52.52`, `longitude=13.41`, `hourly=temperature_2m` | HTTP 200, `Content-Type: application/json` | P1 |
-| TC-WEA-002 | `GET /forecast` | Schema | `timezone`, `hourly.temperature_2m` present and typed correctly | Valid params | `WeatherValidator().validate()` passes | P1 |
+**TC-WEA-001 through TC-WEA-006 are parametrized across all 5 cities from `test_data/cities.json`:**
+
+| City | latitude | longitude |
+|------|----------|-----------|
+| Berlin | 52.52 | 13.405 |
+| Tokyo | 35.6762 | 139.6503 |
+| New York | 40.7128 | -74.006 |
+| Sydney | -33.8688 | 151.2093 |
+| Mumbai | 19.076 | 72.8777 |
+
+Parametrization is loaded at module level: `CITIES = json.loads(Path("test_data/cities.json").read_text())` and applied via `@pytest.mark.parametrize("city", CITIES)`. Each row below expands to 5 test nodes, one per city.
+
+| ID | Endpoint | Technique | Description | Input | Expected | Priority |
+|----|----------|-----------|-------------|-------|----------|----------|
+| TC-WEA-001 | `GET /forecast` | Positive | Valid forecast request returns 200 and JSON body — **× 5 cities** | `latitude=city.lat`, `longitude=city.lon`, `hourly=temperature_2m` | HTTP 200, `Content-Type: application/json` | P1 |
+| TC-WEA-002 | `GET /forecast` | Schema | `timezone`, `hourly.temperature_2m` present and typed correctly — **× 5 cities** | Valid params per city | `WeatherValidator().validate()` passes | P1 |
 | TC-WEA-003 | `GET /forecast` | Positive | `current_weather=true` returns current weather block | `latitude=52.52`, `longitude=13.41`, `current_weather=true` | HTTP 200, `current_weather` key present | P1 |
 | TC-WEA-004 | `GET /forecast` | Positive | `forecast_days=1` returns single-day forecast | `latitude=52.52`, `longitude=13.41`, `forecast_days=1` | HTTP 200, `hourly.temperature_2m` list non-empty | P1 |
-| TC-WEA-005 | `GET /forecast` | Equivalence | Berlin as representative valid coordinate pair | `latitude=52.52`, `longitude=13.41` | HTTP 200 | P2 |
-| TC-WEA-006 | `GET /forecast` | Equivalence | Tokyo as second representative coordinate pair | `latitude=35.69`, `longitude=139.69` | HTTP 200 | P2 |
+| TC-WEA-005 | `GET /forecast` | Equivalence | Temperature range validated as reasonable — **× 5 cities** | `latitude=city.lat`, `longitude=city.lon` | All temps `-80.0 ≤ t ≤ 60.0°C` (`WeatherValidator`) | P2 |
+| TC-WEA-006 | `GET /forecast` | Equivalence | Hourly entry count > 0 — **× 5 cities** | `latitude=city.lat`, `longitude=city.lon` | `len(hourly.temperature_2m) > 0` | P2 |
 | TC-WEA-007 | `GET /forecast` | Boundary | Minimum valid latitude (-90) | `latitude=-90`, `longitude=0` | HTTP 200 | P2 |
 | TC-WEA-008 | `GET /forecast` | Boundary | Maximum valid latitude (90) | `latitude=90`, `longitude=0` | HTTP 200 | P2 |
 | TC-WEA-009 | `GET /forecast` | Boundary | Minimum valid longitude (-180) | `latitude=0`, `longitude=-180` | HTTP 200 | P2 |
