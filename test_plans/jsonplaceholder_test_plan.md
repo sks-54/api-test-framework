@@ -105,7 +105,35 @@
 | TC-JSO-037 | `GET /posts/{id}` | Security | OWASP security headers present in response | Standard request | `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` present | P1 |
 | TC-JSO-038 | _(matrix)_ | Compatibility | Framework runs cleanly on Python 3.9 and 3.12 | CI matrix | All tests pass on ubuntu/3.9 + ubuntu/3.12 (Rule 26) | P3 |
 
-**Total: 38 test cases**
+**Implemented: 26 test cases** (TC-JSO-001 through TC-JSO-026)
+
+> **TC-JSO-027 through TC-JSO-038 are deferred** — designed at plan time, descoped from the
+> initial v3.0.0 implementation. See section below.
+
+---
+
+## 3b. Deferred Test Cases (TC-JSO-027 through TC-JSO-038)
+
+The following 12 test cases were designed at plan time but descoped from the initial
+implementation to keep the per-file count consistent with the parallel pipeline output
+(26 tests per environment). The validator, fixture, and data file are all in place.
+
+| ID | Endpoint | Technique | Reason Deferred |
+|----|----------|-----------|-----------------|
+| TC-JSO-027 | `GET /albums/{id}` | Schema | Albums validator covers positive only in v3.0.0 |
+| TC-JSO-028 | `GET /albums/{id}` | Equivalence | Deferred with schema coverage |
+| TC-JSO-029 | `GET /albums/{id}` | Boundary (min) | Deferred with schema coverage |
+| TC-JSO-030 | `GET /albums/{id}` | Boundary (max) | Deferred with schema coverage |
+| TC-JSO-031 | `GET /__apitf_nonexistent__` | Negative | Covered by `test_baseline.py` for all envs |
+| TC-JSO-032 | `GET /posts/{id}` | Negative (missing params) | Covered by TC-JSO-011 |
+| TC-JSO-033 | `GET /posts/{id}` | Error Handling | Covered by TC-JSO-011 |
+| TC-JSO-034 | `GET /posts/{id}` | Performance | Covered by `test_baseline.py` |
+| TC-JSO-035 | `GET /posts/{id}` | Reliability | Covered by `test_baseline.py` |
+| TC-JSO-036 | Security | HTTPS enforcement | Covered by `test_security.py` for all envs |
+| TC-JSO-037 | Security | OWASP headers | Covered by `test_security.py` for all envs |
+| TC-JSO-038 | _(matrix)_ | Compatibility | CI matrix covers all envs identically |
+
+See `ENHANCEMENTS.md` for post-v3.0.0 roadmap.
 
 ---
 

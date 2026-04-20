@@ -76,7 +76,7 @@ See `INSTALL.md` for Windows-specific steps and AI provider setup.
 ```bash
 # Single environment
 pytest --env countries -q          # REST Countries (22 tests)
-pytest --env weather -q            # Open-Meteo (22 tests, 6 xfail SLA violations)
+pytest --env weather -q            # Open-Meteo (24 tests, 6 xfail SLA violations)
 pytest --env jsonplaceholder -q    # JSONPlaceholder (26 tests, 1 xfail)
 
 # All environments + security + baseline
@@ -203,7 +203,7 @@ Parametrized across all three environments (jsonplaceholder, countries, weather)
 | File | Tests | xfail | Technique coverage |
 |------|-------|-------|--------------------|
 | test_countries.py | 22 | 2 | All 10 techniques |
-| test_weather.py | 22 | 0 (6 SLA xfails during SLA violations) | All 10 techniques |
+| test_weather.py | 24 | 0 (6 SLA xfails during SLA violations) | All 10 techniques |
 | test_jsonplaceholder.py | 26 | 1 | All 10 techniques |
 | test_security.py | 24 | 0 | Negative, Security, Error Handling |
 | test_baseline.py | 12 | 0 | Positive, Performance, Security |
@@ -417,7 +417,7 @@ config/
 tests/
   conftest.py             env_config fixture (session-scoped), --env CLI flag, skip logic
   test_countries.py       22 REST Countries tests
-  test_weather.py         22 Open-Meteo tests (6 xfail SLA violations)
+  test_weather.py         24 Open-Meteo tests (6 xfail SLA violations)
   test_jsonplaceholder.py 26 JSONPlaceholder tests (AI-generated, 1 xfail)
   test_security.py        24 cross-environment security tests
   test_baseline.py        12 cross-environment baseline tests (4 × 3 envs)
@@ -452,10 +452,10 @@ scripts/
 
 wiki/
   Home.md                 Navigation index
-  Components.md           Detailed component reference
+  Framework-Components.md  Detailed component reference
   Bug-Lifecycle.md        End-to-end bug tracking protocol
   Design-Decisions.md     Architecture decision records
-  Rules.md                27-rule reference
+  Rules-Reference.md      27-rule reference
   Troubleshooting.md      Common failure patterns
   Allure-Report-Guide.md  Allure setup, filtering, xfail/xpass interpretation
   Test-Design-Techniques.md  10 techniques with live code examples

@@ -62,7 +62,7 @@
 
 - [x] `.github/workflows/ci.yml` triggers on push to any branch
 - [x] Python environment setup + `pip install --upgrade pip && pip install -e ".[test]"` (pyproject.toml)
-- [x] Full test suite runs (countries 22 + weather 22 + jsonplaceholder 26 + security 24 + baseline 12 = **108 tests**)
+- [x] Full test suite runs (countries 22 + weather 24 + jsonplaceholder 26 + security 24 + baseline 12 = **108 tests**)
 - [x] Test report uploaded as pipeline artifact
 - [x] Pipeline fails if any test fails or quality gate breached
 - [x] Bonus: test summary printed in job output

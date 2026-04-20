@@ -85,9 +85,9 @@
 | TC-COU-020 | `GET /name/germany` | Reliability | Transient failure retried and recovered | Network blip | Pass on retry ≤ 2; `@pytest.mark.flaky(reruns=2)` | P2 |
 | TC-COU-021 | `HttpClient('http://...')` | Security | HTTP (not HTTPS) is rejected at construction | Plain-HTTP base URL | `ValueError` raised, message contains `'HTTPS'` | P1 |
 | TC-COU-022 | `GET /name/germany` | Security | OWASP security headers present in response | Standard request | `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` present | P1 |
-| TC-COU-023 | _(matrix)_ | Compatibility | Framework runs cleanly on Python 3.9 and 3.12 | CI matrix | All tests pass on ubuntu/3.9 + ubuntu/3.12 (Rule 26) | P3 |
+| TC-COU-023 | _(matrix)_ | Compatibility | Framework runs cleanly on Python 3.9 and 3.12 | CI matrix | All tests pass on ubuntu/3.9 + ubuntu/3.12 (Rule 26) | P3 _(CI only — not a test function)_ |
 
-**Total: 23 test cases**
+**Total: 22 test functions** (TC-COU-023 is covered by the CI matrix, not a standalone pytest function)
 
 ---
 

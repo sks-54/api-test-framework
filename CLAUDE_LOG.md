@@ -11,7 +11,7 @@ All entries are append-only. Resolved entries are marked but never deleted.
 |-------|------|--------|----|-------|
 | 1 | Scaffold + Config | MERGED | #1 | environments.yaml, cities.json, pytest.ini |
 | 2 | Core Framework | MERGED | #2 | http_client, validators, spec_parsers, reporters |
-| 3 | Tests — Countries + Weather | MERGED | #4 | test_countries.py (22) + test_weather.py (22); 12 bugs filed |
+| 3 | Tests — Countries + Weather | MERGED | #4 | test_countries.py (22) + test_weather.py (24); 12 bugs filed |
 | 4 | Reporting | MERGED with Phase 2+3 | #4 | bug_reporter.py, deliverables_tracker.py, Allure config |
 | 5 | CI Pipeline | MERGED | #3 | 4-stage: smoke→platform→versions→gate; 6 jobs; Node.js 24 actions |
 | 6 | Claude Code Artifacts | MERGED with Phase 2 | #2 | rules/ (4 files), skills/ (4 files), scripts/advisor_review.py |

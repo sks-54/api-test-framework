@@ -4,6 +4,23 @@
 Given an endpoint spec, generate a complete, runnable pytest test file that
 follows all framework conventions (testing-standards.md + code-style.md).
 
+## Modes of Operation
+
+**Scaffold mode (this skill's primary use):** Generates a single-endpoint starter file.
+- Filename: `tests/test_{ENV_NAME}_{endpoint_slug}.py` (scaffold mode — multi-endpoint files use `tests/test_{ENV_NAME}.py`)
+- Produces exactly 4 tests: positive, negative, boundary, performance
+
+**Full-environment mode (shipped reference implementations):** The 5 reference test files
+(`test_countries.py`, `test_weather.py`, `test_jsonplaceholder.py`, `test_security.py`,
+`test_baseline.py`) each cover all 10 testing techniques across multiple endpoints. They
+were evolved through the eval_loop and parallel pipeline — they are not single scaffold-mode
+outputs.
+
+When generating tests for a brand-new API, start with scaffold mode (this skill), then
+expand via the eval_loop to reach full-environment coverage.
+
+---
+
 ## Invocation Inputs (all required)
 ```
 ENDPOINT_URL:     <full base URL, e.g. https://restcountries.com/v3.1>

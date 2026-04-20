@@ -40,7 +40,7 @@ gh pr checks <N> --watch
 | Suite | File | Tests |
 |-------|------|-------|
 | countries | `test_countries.py` | 22 |
-| weather | `test_weather.py` | 22 |
+| weather | `test_weather.py` | 24 |
 | jsonplaceholder | `test_jsonplaceholder.py` | 26 |
 | security | `test_security.py` | 24 (RFC 7231 method/header/content + OWASP injection) |
 | baseline | `test_baseline.py` | 12 (HTTPS, 2xx, 404, perf × 3 envs) |

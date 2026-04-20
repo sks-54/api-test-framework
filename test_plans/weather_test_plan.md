@@ -23,13 +23,15 @@
 
 ### In Scope
 
-| Method | Path | Sampled response fields |
-|--------|------|-------------------------|
-| `GET` | `/region/europe` | — |
-| `GET` | `/name/germany` | — |
-| `GET` | `/all?fields=name,population` | — |
+| Method | Path | Key parameters |
+|--------|------|----------------|
+| `GET` | `/forecast` | `latitude`, `longitude`, `hourly=temperature_2m` |
+| `GET` | `/forecast` | `latitude`, `longitude`, `current_weather=true` |
+| `GET` | `/forecast` | `latitude`, `longitude`, `forecast_days=1` (boundary) |
+| `GET` | `/forecast` | Missing `latitude` / `longitude` (negative tests) |
+| `GET` | `/forecast` | `latitude=999` (out-of-range error handling) |
 
-**All sampled fields:** _(sampled at scaffold time)_
+**All sampled response fields:** `timezone`, `hourly`, `hourly.temperature_2m` (list of floats)
 
 ### Out of Scope
 
@@ -63,21 +65,21 @@
 
 | ID | Endpoint | Technique | Description | Input | Expected | Priority |
 |----|----------|-----------|-------------|-------|----------|----------|
-| TC-WEA-001 | `GET /region/europe` | Positive | Valid request returns 200 and JSON body | Standard params | HTTP 200, `Content-Type: application/json` | P1 |
-| TC-WEA-002 | `GET /region/europe` | Schema | Response fields _(sampled)_ present and typed | Valid request | `WeatherValidator().validate()` passes | P1 |
-| TC-WEA-003 | `GET /region/europe` | Equivalence | Representative valid input class | Nominal params | HTTP 200 | P2 |
-| TC-WEA-004 | `GET /region/europe` | Boundary | Minimum identifier value | edge-case id=1 or equivalent | HTTP 200 or 404, not 500 | P2 |
-| TC-WEA-005 | `GET /region/europe` | Boundary | Empty / maximum identifier | `''` or out-of-range id | HTTP 4xx, not 500 | P2 |
-| TC-WEA-006 | `GET /name/germany` | Positive | Valid request returns 200 and JSON body | Standard params | HTTP 200, `Content-Type: application/json` | P1 |
-| TC-WEA-007 | `GET /name/germany` | Schema | Response fields _(sampled)_ present and typed | Valid request | `WeatherValidator().validate()` passes | P1 |
-| TC-WEA-008 | `GET /name/germany` | Equivalence | Representative valid input class | Nominal params | HTTP 200 | P2 |
-| TC-WEA-009 | `GET /name/germany` | Boundary | Minimum identifier value | edge-case id=1 or equivalent | HTTP 200 or 404, not 500 | P2 |
-| TC-WEA-010 | `GET /name/germany` | Boundary | Empty / maximum identifier | `''` or out-of-range id | HTTP 4xx, not 500 | P2 |
-| TC-WEA-011 | `GET /all?fields=name,population` | Positive | Valid request returns 200 and JSON body | Standard params | HTTP 200, `Content-Type: application/json` | P1 |
-| TC-WEA-012 | `GET /all?fields=name,population` | Schema | Response fields _(sampled)_ present and typed | Valid request | `WeatherValidator().validate()` passes | P1 |
-| TC-WEA-013 | `GET /all?fields=name,population` | Equivalence | Representative valid input class | Nominal params | HTTP 200 | P2 |
-| TC-WEA-014 | `GET /all?fields=name,population` | Boundary | Minimum identifier value | edge-case id=1 or equivalent | HTTP 200 or 404, not 500 | P2 |
-| TC-WEA-015 | `GET /all?fields=name,population` | Boundary | Empty / maximum identifier | `''` or out-of-range id | HTTP 4xx, not 500 | P2 |
+| TC-WEA-001 | `GET /forecast` | Positive | Valid forecast request returns 200 and JSON body | `latitude=52.52`, `longitude=13.41`, `hourly=temperature_2m` | HTTP 200, `Content-Type: application/json` | P1 |
+| TC-WEA-002 | `GET /forecast` | Schema | `timezone`, `hourly.temperature_2m` present and typed correctly | Valid params | `WeatherValidator().validate()` passes | P1 |
+| TC-WEA-003 | `GET /forecast` | Positive | `current_weather=true` returns current weather block | `latitude=52.52`, `longitude=13.41`, `current_weather=true` | HTTP 200, `current_weather` key present | P1 |
+| TC-WEA-004 | `GET /forecast` | Positive | `forecast_days=1` returns single-day forecast | `latitude=52.52`, `longitude=13.41`, `forecast_days=1` | HTTP 200, `hourly.temperature_2m` list non-empty | P1 |
+| TC-WEA-005 | `GET /forecast` | Equivalence | Berlin as representative valid coordinate pair | `latitude=52.52`, `longitude=13.41` | HTTP 200 | P2 |
+| TC-WEA-006 | `GET /forecast` | Equivalence | Tokyo as second representative coordinate pair | `latitude=35.69`, `longitude=139.69` | HTTP 200 | P2 |
+| TC-WEA-007 | `GET /forecast` | Boundary | Minimum valid latitude (-90) | `latitude=-90`, `longitude=0` | HTTP 200 | P2 |
+| TC-WEA-008 | `GET /forecast` | Boundary | Maximum valid latitude (90) | `latitude=90`, `longitude=0` | HTTP 200 | P2 |
+| TC-WEA-009 | `GET /forecast` | Boundary | Minimum valid longitude (-180) | `latitude=0`, `longitude=-180` | HTTP 200 | P2 |
+| TC-WEA-010 | `GET /forecast` | Boundary | Maximum valid longitude (180) | `latitude=0`, `longitude=180` | HTTP 200 | P2 |
+| TC-WEA-011 | `GET /forecast` | Negative | Missing `latitude` returns 400 | Omit `latitude` param | HTTP 400 | P1 |
+| TC-WEA-012 | `GET /forecast` | Negative | Missing `longitude` returns 400 | Omit `longitude` param | HTTP 400 | P1 |
+| TC-WEA-013 | `GET /forecast` | Error Handling | `latitude=999` (out of range) returns 400 | `latitude=999`, `longitude=13.41` | HTTP 400 | P2 |
+| TC-WEA-014 | `GET /forecast` | Error Handling | `longitude=999` (out of range) returns 400 | `latitude=52.52`, `longitude=999` | HTTP 400 | P2 |
+| TC-WEA-015 | `GET /forecast` | Error Handling | Non-numeric latitude returns 400 | `latitude=abc`, `longitude=0` | HTTP 400 | P2 |
 | TC-WEA-016 | `GET /__apitf_nonexistent__` | Negative | Unknown path returns 404 | Invalid path | HTTP 404 exactly | P1 |
 | TC-WEA-017 | `GET /forecast` | Negative | Missing required params returns 400 | Omit required param | HTTP 400 or 422 | P1 |
 | TC-WEA-018 | `GET /forecast` | Error Handling | Malformed request does not trigger 5xx | Malformed query | HTTP 4xx, not 5xx | P2 |
@@ -87,7 +89,7 @@
 | TC-WEA-022 | `GET /forecast` | Security | OWASP security headers present in response | Standard request | `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` present | P1 |
 | TC-WEA-023 | _(matrix)_ | Compatibility | Framework runs cleanly on Python 3.9 and 3.12 | CI matrix | All tests pass on ubuntu/3.9 + ubuntu/3.12 (Rule 26) | P3 |
 
-**Total: 23 test cases**
+**Total: 24 test cases**
 
 ---
 
