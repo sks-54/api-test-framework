@@ -532,3 +532,38 @@ uses: actions/setup-python@v5.5.0
 uses: actions/cache@v4.2.3
 uses: actions/upload-artifact@v4.6.2
 ```
+
+## Rule 28 — Spec-First Done Verification
+
+Before declaring any phase or submission complete, enumerate every spec requirement
+explicitly and verify each one against an actual file on disk — not against conversation
+memory, not against "I remember fixing that."
+
+**The failure pattern this prevents:** Doc fixes get verified by reading the doc, not by
+cross-referencing the spec. A requirement that was "fixed" in conversation but never
+written to a file, or written to the wrong file, passes the mental check and fails the
+real one.
+
+**The protocol:**
+
+1. Open the spec document (PDF, markdown, or requirements list)
+2. List every requirement as a numbered checklist — do not paraphrase, copy verbatim
+3. For each requirement, identify the exact file(s) that satisfy it
+4. Read or grep those files to confirm the requirement is met in current file state
+5. Only mark a requirement done when the file confirms it — never on memory alone
+
+```bash
+# Useful verification commands
+grep -n "<requirement keyword>" <file>          # confirm text exists
+python3 -m pytest --collect-only -q | tail -3  # confirm test count
+python3 scripts/verify_bug_markers.py          # confirm xfail coverage
+git rev-parse v3.0.0^{} && git rev-parse HEAD  # confirm tag on HEAD
+```
+
+**When to apply:** Before every PR merge, before every release tag, before every
+submission. The cost of 5 minutes reading the spec is lower than the cost of a missed
+requirement discovered after submission.
+
+**Enforcement:** This rule is checked by the session-start protocol (Rule 20). At session
+start, re-read the spec and confirm all requirements are still satisfied against current
+HEAD — not against what was true at last review.

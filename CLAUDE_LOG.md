@@ -222,6 +222,7 @@ Agent(
 | Rule 22 — Pre-Commit Assertion Integrity Check | 2026-04-19 | TC-W-010 had `in (200, 400)` widened assertion |
 | Rule 23 — Post-Rebase Bug Marker Verification | 2026-04-19 | xfail markers silently dropped during rebase |
 | Rule 24 — Bug Reports Must Include curl | 2026-04-19 | User requested curl-reproducible bug reports |
+| Rule 28 — Spec-First Done Verification | 2026-04-20 | Doc fixes repeatedly verified against memory rather than the spec — weather_test_plan scope table had wrong endpoints, CLAUDE_LOG missing 4 required spec checkboxes, weather count wrong in 4 files |
 
 ---
 
