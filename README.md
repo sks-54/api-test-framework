@@ -463,7 +463,7 @@ wiki/
 BUG_REPORT.md             Master bug log (curl reproduction commands mandatory — Rule 24)
 DELIVERABLES.md           Spec requirements tracker
 CLAUDE_LOG.md             Phase log, Opus review results, process violations
-ENHANCEMENTS.md           Post-v2.0.0.0 roadmap
+ENHANCEMENTS.md           Post-v3.0.0 roadmap
 ```
 
 ---
