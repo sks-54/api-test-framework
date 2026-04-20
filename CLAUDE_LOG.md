@@ -28,9 +28,9 @@ All entries are append-only. Resolved entries are marked but never deleted.
 
 | Bug | Test | Severity | Category | Status | Issue | Title |
 |-----|------|----------|----------|--------|-------|-------|
-| BUG-001 | TC-C-004 | P2 | QUALITY_FAILURE | OPEN | #5 | `/alpha/ZZZ999` returns 400 instead of 404 |
+| BUG-001 | TC-C-021 | P2 | QUALITY_FAILURE | OPEN | #5 | `/alpha/ZZZ999` returns 400 instead of 404 |
 | BUG-002 | TC-W-004 | P2 | QUALITY_FAILURE | OPEN | #6 | `/forecast` without lat/lon returns 200 silently |
-| BUG-003 | TC-C-021 | P3 | QUALITY_FAILURE | OPEN | #7 | 5 territories return `population=0` |
+| BUG-003 | TC-C-022 | P3 | QUALITY_FAILURE | OPEN | #7 | 5 territories return `population=0` |
 | BUG-004 | TC-W-004, TC-W-010 | P1 | SLA_VIOLATION | OPEN | #8 | Open-Meteo `/forecast` times out in CI consistently |
 | BUG-005 | TC-W-007 | P1 | SLA_VIOLATION | OPEN | #9 | Open-Meteo `/forecast` times out before perf assertion |
 | BUG-006 | test_method_not_allowed[weather-POST] | P2 | QUALITY_FAILURE | OPEN | #14 | POST `/forecast` returns 415 instead of 405 |

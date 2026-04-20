@@ -120,7 +120,7 @@ The suite is split across five test files. Every live-HTTP test has `@pytest.mar
 | TC-C-017 | `test_germany_response_contains_required_fields` | State-based | name, capital, population, currencies, languages |
 | TC-C-018 | `test_germany_state_values` | State-based | cca2=DE, region=Europe, independent=True |
 | TC-C-019 | `test_europe_region_returns_multiple_countries` | State-based | result count > 40 |
-| TC-C-020 | `test_all_countries_returns_full_list` | State-based | all population > 0 |
+| TC-C-020 | `test_all_countries_returns_full_list` | State-based | result count > 200 (global country coverage) |
 | TC-C-021 | `test_alpha_invalid_code_returns_404_xfail` | Negative | xfail — API returns wrong code |
 | TC-C-022 | `test_all_countries_population_nonzero_xfail` | Boundary | xfail — known data quality issue |
 | TC-C-023 | `test_country_name_appears_in_region_cross_reference` | Cross-reference | /name/germany region → /region/{region} → Germany present |

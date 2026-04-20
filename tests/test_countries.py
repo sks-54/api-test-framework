@@ -35,7 +35,7 @@ def test_get_countries_by_region_positive(env_config: dict) -> None:
     assert result.passed, result.errors
 
 
-@allure.title("TC-003: Positive — GET /all?fields=name,population returns 200 and every country has population > 0")
+@allure.title("TC-003: Positive — GET /all?fields=name,population returns 200 and every country has the population field")
 @pytest.mark.flaky(reruns=2, reruns_delay=2)
 def test_get_all_countries_with_fields_positive(env_config: dict) -> None:
     cfg = env_config["countries"]
@@ -43,7 +43,6 @@ def test_get_all_countries_with_fields_positive(env_config: dict) -> None:
         resp = client.get("/all?fields=name,population")
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list) and len(resp.json_body) > 200
-    # Uninhabited territories legitimately have population=0; assert field present and non-negative.
     assert all("population" in c and c["population"] >= 0 for c in resp.json_body), \
         "Some entries are missing the population field or have a negative value"
 

@@ -53,7 +53,7 @@ assert resp.status_code in (400, 404)
 ```bash
 gh issue create \
   --label bug,quality-failure \
-  --title "[BUG] TC-C-004: /alpha/ZZZ999 returns 400 instead of 404 (RFC 7231 §6.5.4)" \
+  --title "[BUG] TC-C-021: /alpha/ZZZ999 returns 400 instead of 404 (RFC 7231 §6.5.4)" \
   --body "$(cat bugs/<timestamp>_test_invalid_alpha_code_returns_404.md)"
 ```
 
@@ -68,7 +68,7 @@ Add a block to `BUG_REPORT.md` using the standard format:
 |-------|-------|
 | **Status** | OPEN |
 | **Category** | QUALITY_FAILURE |
-| **Test** | TC-C-004 / test_invalid_alpha_code_returns_404 |
+| **Test** | TC-C-021 / test_invalid_alpha_code_returns_404 |
 | **Issue** | https://github.com/sks-54/api-test-framework/issues/N |
 | **Bug ID** | BUG-NNN |
 

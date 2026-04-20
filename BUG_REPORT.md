@@ -39,7 +39,7 @@ When a bug is reproduced on additional platforms or Python versions, update the
 |-------|-------|
 | **ID** | BUG-001 |
 | **Issue** | https://github.com/sks-54/api-test-framework/issues/5 |
-| **Test** | TC-C-004 |
+| **Test** | TC-C-021 |
 | **Severity** | P2 |
 | **Category** | QUALITY_FAILURE |
 | **Status** | OPEN |

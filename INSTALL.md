@@ -185,7 +185,8 @@ set ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 :: CMD — persist across sessions:
 setx ANTHROPIC_API_KEY "sk-ant-YOUR_KEY_HERE"
 ```
-```
+
+```text
 # All platforms — .env file in project root (gitignored, loaded automatically):
 ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 ```
