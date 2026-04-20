@@ -37,13 +37,14 @@ gh pr checks <N> --watch
 
 ## Test Suite Summary
 
-| Suite | File | Tests | Collected Nodes |
-|-------|------|-------|-----------------|
-| countries | `test_countries.py` | 21 | 21 |
-| weather | `test_weather.py` | 10 | 26 (5-city parametrize) |
-| security | `test_security.py` | RFC 7231 + OWASP | ~48 (env × violation type) |
-| baseline | `test_baseline.py` | 4 generic per env | ~8 (2 envs × 4 checks) |
-| **Total** | | | **88** |
+| Suite | File | Tests |
+|-------|------|-------|
+| countries | `test_countries.py` | 22 |
+| weather | `test_weather.py` | 22 |
+| jsonplaceholder | `test_jsonplaceholder.py` | 26 |
+| security | `test_security.py` | 24 (RFC 7231 method/header/content + OWASP injection) |
+| baseline | `test_baseline.py` | 12 (HTTPS, 2xx, 404, perf × 3 envs) |
+| **Total** | | **108** |
 
 ## Known Bugs
 
@@ -53,6 +54,7 @@ gh pr checks <N> --watch
 | BUG-002 | QUALITY | Weather | Missing params → 200 not 400 |
 | BUG-003 | QUALITY | Countries | 5 territories have `population=0` |
 | BUG-004 | SLA | Weather | /forecast timeout on CI runners |
+| BUG-005 | SLA | Weather | /forecast timeout before perf assertion |
 | BUG-006..012 | QUALITY | Weather | RFC 7231 method/header/content violations |
 
 See [BUG_REPORT.md](../BUG_REPORT.md) for curl reproduction commands and full details.

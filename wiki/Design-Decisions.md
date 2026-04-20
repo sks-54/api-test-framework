@@ -42,7 +42,7 @@ Key architectural choices, the alternatives considered, and why this approach wa
 
 ---
 
-## 5. 3-Stage CI Pipeline (Not Full Cartesian Matrix)
+## 5. 4-Stage CI Pipeline (Not Full Cartesian Matrix)
 
 **Decision:** 6 total jobs — 1 smoke (ubuntu/3.11), 2 platform (windows+mac/3.11), 2 versions (ubuntu/3.9+3.12), 1 gate.
 

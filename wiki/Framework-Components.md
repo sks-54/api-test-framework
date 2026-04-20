@@ -116,7 +116,7 @@ assert result.passed, result.errors
 
 ---
 
-## CountryValidator (`apitf/validators/country_validator.py`)
+## CountryValidator (`apitf/validators/countries_validator.py`)
 
 Validates REST Countries API response objects.
 
@@ -133,9 +133,9 @@ Validates REST Countries API response objects.
 ### Usage
 
 ```python
-from apitf.validators.country_validator import CountryValidator
+from apitf.validators.countries_validator import CountriesValidator
 
-result = CountryValidator().validate(resp.json_body[0])  # single country object
+result = CountriesValidator().validate(resp.json_body[0])  # single country object
 assert result.passed, result.errors
 ```
 
@@ -240,6 +240,7 @@ Parses spec documents into `EndpointSpec` dataclasses for test generation.
 | `method` | `str` | GET / POST / etc. |
 | `path` | `str` | `/name/{name}` |
 | `base_url` | `str` | Full `https://` URL |
+| `resource_name` | `str` | First non-template path segment (e.g. `name`, `forecast`) — used for parallel pipeline grouping |
 | `description` | `str` | Extracted from spec text |
 | `required_params` | `list[str]` | From spec |
 | `thresholds` | `dict` | Always `{}` — filled by caller from YAML |
@@ -262,5 +263,5 @@ Dispatch is by `source.suffix` — each parser declares `supported_extensions`.
 | Parser | Status | Notes |
 |--------|--------|-------|
 | `PDFParser` | Implemented | Uses pdfplumber; extracts method keywords + nearest `https://` URL |
+| `MarkdownParser` | Implemented | Parses fenced code blocks and `METHOD /path` lines; registered via `ParserRegistry` |
 | `OpenAPIParser` | Stub | Interface defined; see ENHANCEMENTS.md E-01 |
-| `MarkdownParser` | Stub | Interface defined; see ENHANCEMENTS.md E-02 |

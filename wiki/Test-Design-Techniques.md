@@ -195,15 +195,15 @@ def test_negative_latitude_exceeds_max(env_config: dict) -> None:
 
 ## Technique Coverage Map
 
-| Technique | Countries | Weather | Baseline | Security |
-|-----------|-----------|---------|----------|----------|
-| Equivalence | TC-004, TC-005 | TC-005, TC-006 | — | — |
-| Boundary | TC-007, TC-008, TC-009 | TC-007..TC-010, TC-016..TC-017 | — | — |
-| Positive | TC-001, TC-002 | TC-001..TC-004 | TC-001..TC-004 | — |
-| Negative | TC-010..TC-012 | TC-011..TC-015 | — | TC-method, TC-406 |
-| Performance | TC-013..TC-015 | TC-018 | TC-005..TC-008 | — |
-| Reliability | All flaky | All flaky | All flaky | — |
-| Security | TC-016 | TC-019 | — | All |
-| State-based | TC-017..TC-020 | TC-020..TC-023 | — | — |
-| Error Handling | TC-012 | TC-013..TC-015 | — | — |
-| Compatibility | CI matrix | CI matrix | CI matrix | CI matrix |
+| Technique | Countries | Weather | JSONPlaceholder | Baseline | Security |
+|-----------|-----------|---------|-----------------|----------|----------|
+| Equivalence | TC-004, TC-005 | TC-005, TC-006 | TC-J-003..TC-J-006 | — | — |
+| Boundary | TC-007, TC-008, TC-009 | TC-007..TC-010, TC-016..TC-017 | TC-J-007..TC-J-010 | — | — |
+| Positive | TC-001, TC-002 | TC-001..TC-004 | TC-J-001..TC-J-006 | TC-001..TC-004 | — |
+| Negative | TC-010..TC-012 | TC-011..TC-015 | TC-J-011..TC-J-014 | — | TC-method, TC-406 |
+| Performance | TC-013..TC-015 | TC-018 | TC-J-015..TC-J-017 | TC-005..TC-008 | — |
+| Reliability | All flaky | All flaky | All flaky | All flaky | — |
+| Security | TC-016 | TC-019 | TC-J-018..TC-J-019 | — | All |
+| State-based | TC-017..TC-020 | TC-020..TC-023 | TC-J-025..TC-J-026 | — | — |
+| Error Handling | TC-012 | TC-013..TC-015 | TC-J-011..TC-J-014 | — | — |
+| Compatibility | CI matrix | CI matrix | CI matrix | CI matrix | CI matrix |

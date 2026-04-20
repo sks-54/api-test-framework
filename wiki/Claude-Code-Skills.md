@@ -67,8 +67,8 @@ Next:
 | Format | Extension | Status |
 |--------|-----------|--------|
 | PDF | `.pdf`, `.PDF` | Implemented (pdfplumber) |
+| Markdown | `.md`, `.markdown` | Implemented (fenced code blocks + `METHOD /path` lines) |
 | OpenAPI 3.x | `.yaml`, `.yml`, `.json` | Stub — see ENHANCEMENTS.md E-01 |
-| Markdown | `.md`, `.markdown` | Stub — see ENHANCEMENTS.md E-02 |
 
 ---
 
