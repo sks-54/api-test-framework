@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches-ignore: ["main"]
+    # Temporary resource optimization: skip CI on feature-branch commits that
+    # only touch documentation. PRs always run full CI regardless of which files
+    # changed (see pull_request trigger below — no paths-ignore there by design).
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -14,10 +17,9 @@ on:
       - "TEST_PLAN.md"
   pull_request:
     branches: ["**"]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "specs/**"
+    # No paths-ignore here — CI always runs on every PR regardless of which
+    # files changed. The paths-ignore on the push trigger above is a temporary
+    # resource optimization for feature-branch commits only.
 
 # Cancel in-progress runs on the same branch regardless of which event fired.
 # github.head_ref = branch name for pull_request events (e.g. "phase/3-tests")
