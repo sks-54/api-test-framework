@@ -10,27 +10,38 @@ All entries are append-only. Resolved entries are marked but never deleted.
 | Phase | Name | Status | PR | Notes |
 |-------|------|--------|----|-------|
 | 1 | Scaffold + Config | MERGED | #1 | environments.yaml, cities.json, pytest.ini |
-| 2 | Core Framework | MERGED | #2 | src/ — http_client, validators, spec_parsers, reporters |
-| 3 | Tests | OPEN | #4 | test_countries.py (21 tests) + test_weather.py (10 tests) |
+| 2 | Core Framework | MERGED | #2 | http_client, validators, spec_parsers, reporters |
+| 3 | Tests — Countries + Weather | MERGED | #4 | test_countries.py (22) + test_weather.py (22); 12 bugs filed |
 | 4 | Reporting | MERGED with Phase 2+3 | #4 | bug_reporter.py, deliverables_tracker.py, Allure config |
-| 5 | CI Pipeline | MERGED | #3 | 3-OS × 4-Python matrix, artifact upload |
-| 6 | Claude Code Artifacts | MERGED with Phase 2 | #2 | rules/, skills/, scripts/advisor_review.py |
-| 7 | README + Tag | DONE | — | README.md complete (150 lines); v2.0.0 package |
-| 8 | Provider Refactor | DONE | — | ClaudeCLIProvider + AnthropicProvider; lazy model selection; subprocess cleanup |
+| 5 | CI Pipeline | MERGED | #3 | 4-stage: smoke→platform→versions→gate; 6 jobs; Node.js 24 actions |
+| 6 | Claude Code Artifacts | MERGED with Phase 2 | #2 | rules/ (4 files), skills/ (4 files), scripts/advisor_review.py |
+| 7 | README + Tag v2.0.0.0 | DONE | — | README.md (691 lines, 7 diagrams); v2.0.0.0 tagged |
+| 8 | Provider Refactor | DONE | — | ClaudeCLIProvider + AnthropicProvider; lazy model selection |
+| 9 | JSONPlaceholder + Security + Baseline | DONE | — | 3 new test files; 58 additional tests; total 108 tests |
+| 10 | Parallel Pipeline | DONE | — | ThreadPoolExecutor; per-resource workers; merge_bug_reports.py |
+| 11 | CI fix + Branch Protection | DONE | — | PR trigger no longer skips docs; main protected (Quality Gate required) |
+| 12 | Final Submission | DONE | — | v3.0.0 tagged; all docs updated; 108 tests; 12 bugs documented |
 
 ---
 
 ## Known Bugs
 
-| Bug | Test | Severity | Category | Status | Title |
-|-----|------|----------|----------|--------|-------|
-| BUG-001 | TC-C-004 | P2 | QUALITY_FAILURE | OPEN | `/alpha/ZZZ999` returns 400 instead of 404 |
-| BUG-002 | TC-W-004 | P2 | QUALITY_FAILURE | OPEN | `/forecast` without lat/lon returns 200 silently |
-| BUG-003 | TC-C-021 | P3 | QUALITY_FAILURE | OPEN | 5 territories return `population=0` |
-| BUG-004 | TC-W-004, TC-W-010 | P1 | SLA_VIOLATION | OPEN | Open-Meteo `/forecast` times out in CI consistently |
-| BUG-005 | TC-W-007 | P1 | SLA_VIOLATION | OPEN | Open-Meteo `/forecast` times out before perf assertion can run |
+| Bug | Test | Severity | Category | Status | Issue | Title |
+|-----|------|----------|----------|--------|-------|-------|
+| BUG-001 | TC-C-004 | P2 | QUALITY_FAILURE | OPEN | #5 | `/alpha/ZZZ999` returns 400 instead of 404 |
+| BUG-002 | TC-W-004 | P2 | QUALITY_FAILURE | OPEN | #6 | `/forecast` without lat/lon returns 200 silently |
+| BUG-003 | TC-C-021 | P3 | QUALITY_FAILURE | OPEN | #7 | 5 territories return `population=0` |
+| BUG-004 | TC-W-004, TC-W-010 | P1 | SLA_VIOLATION | OPEN | #8 | Open-Meteo `/forecast` times out in CI consistently |
+| BUG-005 | TC-W-007 | P1 | SLA_VIOLATION | OPEN | #9 | Open-Meteo `/forecast` times out before perf assertion |
+| BUG-006 | test_method_not_allowed[weather-POST] | P2 | QUALITY_FAILURE | OPEN | #14 | POST `/forecast` returns 415 instead of 405 |
+| BUG-007 | test_security_headers_present[countries] | P2 | QUALITY_FAILURE | OPEN | #15 | REST Countries missing OWASP security headers |
+| BUG-008 | test_security_headers_present[weather] | P2 | QUALITY_FAILURE | OPEN | #16 | Open-Meteo missing OWASP security headers |
+| BUG-009 | test_method_not_allowed[weather-DELETE] | P2 | QUALITY_FAILURE | OPEN | #18 | DELETE `/forecast` returns 404 instead of 405 |
+| BUG-010 | test_content_negotiation_406[weather] | P3 | QUALITY_FAILURE | OPEN | #19 | GET `/forecast` ignores Accept: application/xml |
+| BUG-011 | test_method_not_allowed[weather-PUT] | P2 | QUALITY_FAILURE | OPEN | #21 | PUT `/forecast` returns 404 instead of 405 |
+| BUG-012 | test_method_not_allowed[weather-PATCH] | P2 | QUALITY_FAILURE | OPEN | #22 | PATCH `/forecast` returns 404 instead of 405 |
 
-All bugs have filed GitHub issues. See `BUG_REPORT.md` for curl reproduction commands.
+All 12 bugs have filed GitHub issues with xfail markers. See `BUG_REPORT.md` for curl reproduction commands.
 
 ---
 
