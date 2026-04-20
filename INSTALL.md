@@ -174,9 +174,20 @@ pytest -v --alluredir=allure-results
 
 **API key alternative (works without Claude Code):**
 ```powershell
+# PowerShell — current session only:
 $env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
-# or add to .env file in the project root (gitignored):
-Add-Content .env "ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE"
+# PowerShell — persist across sessions (writes to user environment):
+[System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY","sk-ant-YOUR_KEY_HERE","User")
+```
+```cmd
+:: CMD — current session only:
+set ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+:: CMD — persist across sessions:
+setx ANTHROPIC_API_KEY "sk-ant-YOUR_KEY_HERE"
+```
+```
+# All platforms — .env file in project root (gitignored, loaded automatically):
+ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 ```
 
 ---
@@ -187,7 +198,7 @@ Add-Content .env "ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE"
 # Check imports
 python -c "from apitf.http_client import HttpClient; print('OK')"
 
-# Check test collection (should report 88+ tests, no import errors)
+# Check test collection (should report 108+ tests, no import errors)
 pytest --collect-only -q
 
 # Run the bug-marker guard (used by the pre-push hook)
@@ -209,7 +220,7 @@ Security, RFC, and baseline tests run automatically — no changes needed in
 
 ## CI
 
-The CI pipeline runs on push to any branch (except main and doc-only changes):
+The CI pipeline runs on every PR (all files) and on push to any branch except main (doc-only commits skipped as a resource optimization):
 
 | Stage | Runner | Python |
 |-------|--------|--------|
