@@ -7,7 +7,7 @@ from apitf.validators.countries_validator import CountriesValidator
 REQUIRED_FIELDS: list[str] = [
     "tld", "cca2", "ccn3", "cca3", "cioc", "independent", "status",
     "unMember", "idd", "capital", "altSpellings", "region", "subregion",
-    "landlocked", "borders",
+    "landlocked", "borders", "name", "population", "currencies", "languages",
 ]
 
 pytestmark = [pytest.mark.countries, allure.suite("countries")]
@@ -217,7 +217,7 @@ def test_europe_region_returns_multiple_countries(env_config: dict) -> None:
         resp = client.get("/region/europe")
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list)
-    assert len(resp.json_body) > 1
+    assert len(resp.json_body) > 40
 
 
 @allure.title("TC-020: State-based — GET /all returns a list of more than 200 countries")
@@ -229,6 +229,24 @@ def test_all_countries_returns_full_list(env_config: dict) -> None:
     assert resp.status_code == 200
     assert isinstance(resp.json_body, list)
     assert len(resp.json_body) > 200
+
+
+@allure.title("TC-023: Cross-reference — country from /name/germany appears in /region/europe results")
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+def test_country_name_appears_in_region_cross_reference(env_config: dict) -> None:
+    cfg = env_config["countries"]
+    with HttpClient(cfg["base_url"]) as client:
+        country_resp = client.get("/name/germany")
+    assert country_resp.status_code == 200
+    region = country_resp.json_body[0]["region"]
+    with HttpClient(cfg["base_url"]) as client:
+        region_resp = client.get(f"/region/{region}")
+    assert region_resp.status_code == 200
+    names = [c.get("name", {}).get("common", "") for c in region_resp.json_body]
+    assert any("Germany" in n for n in names), (
+        f"Germany not found in /region/{region} results. "
+        "Cross-reference: a country found via /name must appear in /region results."
+    )
 
 
 @allure.title("TC-C-021: xfail — GET /alpha/ZZZ999 should return 404 but returns 400 (BUG-001)")

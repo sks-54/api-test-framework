@@ -7,7 +7,7 @@
 
 A production-grade, multi-environment API test framework. Point it at a spec document (PDF, OpenAPI, or Markdown), and it extracts endpoint definitions, generates typed validators, and produces complete pytest test files — driven by YAML config and Claude AI, with zero manual scaffolding.
 
-Ships with three reference environments: **REST Countries**, **Open-Meteo**, and **JSONPlaceholder** (108 tests, 10 testing techniques, Allure reporting, 4-stage CI matrix).
+Ships with three reference environments: **REST Countries**, **Open-Meteo**, and **JSONPlaceholder** (114 tests, 10 testing techniques, Allure reporting, 4-stage CI matrix).
 
 ---
 
@@ -16,7 +16,7 @@ Ships with three reference environments: **REST Countries**, **Open-Meteo**, and
 1. [How It Works](#how-it-works)
 2. [Install](#install)
 3. [Run Tests](#run-tests)
-4. [The 108 Tests — Full Breakdown](#the-108-tests--full-breakdown)
+4. [The 114 Tests — Full Breakdown](#the-114-tests--full-breakdown)
 5. [Generate Tests from a Spec](#generate-tests-from-a-spec)
 6. [Parallel Multi-Agent Pipeline](#parallel-multi-agent-pipeline)
 7. [Add a New API (3 steps)](#add-a-new-api-3-steps)
@@ -79,12 +79,12 @@ See `INSTALL.md` for detailed Windows notes, CMD alternatives, and AI provider s
 
 ```bash
 # Single environment
-pytest --env countries -q          # REST Countries (22 tests)
-pytest --env weather -q            # Open-Meteo (24 tests, 6 xfail SLA violations)
+pytest --env countries -q          # REST Countries (23 tests)
+pytest --env weather -q            # Open-Meteo (29 tests, 6 xfail SLA violations)
 pytest --env jsonplaceholder -q    # JSONPlaceholder (26 tests, 1 xfail)
 
 # All environments + security + baseline
-pytest -q                          # 108 tests total
+pytest -q                          # 114 tests total
 
 # With Allure report
 pytest -q --alluredir=allure-results
@@ -93,11 +93,11 @@ allure serve allure-results        # opens browser
 
 ---
 
-## The 108 Tests — Full Breakdown
+## The 114 Tests — Full Breakdown
 
 The suite is split across five test files. Every live-HTTP test has `@pytest.mark.flaky(reruns=2, reruns_delay=2)` for transient network tolerance. Environment-scoped tests skip automatically when `--env` selects a different environment.
 
-### `test_countries.py` — 22 tests, REST Countries API
+### `test_countries.py` — 23 tests, REST Countries API
 
 | ID | Test | Technique | Notes |
 |----|------|-----------|-------|
@@ -123,8 +123,9 @@ The suite is split across five test files. Every live-HTTP test has `@pytest.mar
 | TC-C-020 | `test_all_countries_returns_full_list` | State-based | all population > 0 |
 | TC-C-021 | `test_alpha_invalid_code_returns_404_xfail` | Negative | xfail — API returns wrong code |
 | TC-C-022 | `test_all_countries_population_nonzero_xfail` | Boundary | xfail — known data quality issue |
+| TC-C-023 | `test_country_name_appears_in_region_cross_reference` | Cross-reference | /name/germany region → /region/{region} → Germany present |
 
-### `test_weather.py` — 22 tests, Open-Meteo API
+### `test_weather.py` — 29 tests, Open-Meteo API
 
 | ID | Test | Technique | Notes |
 |----|------|-----------|-------|
@@ -150,6 +151,12 @@ The suite is split across five test files. Every live-HTTP test has `@pytest.mar
 | TC-W-020 | `test_state_forecast_required_fields_present` | State-based | latitude, longitude, hourly present |
 | TC-W-021 | `test_state_forecast_latitude_reflects_request` | State-based | returned lat matches requested lat |
 | TC-W-022 | `test_state_forecast_hourly_key_present` | State-based | hourly.time non-empty |
+| TC-W-023 | `test_state_forecast_current_weather_key_present` | State-based | current_weather key present when requested |
+| TC-W-025[Berlin] | `test_forecast_valid_request_parametrized_cities[Berlin]` | Parametrized | /forecast → 200 + schema (Berlin) |
+| TC-W-025[Tokyo] | `test_forecast_valid_request_parametrized_cities[Tokyo]` | Parametrized | /forecast → 200 + schema (Tokyo) |
+| TC-W-025[New York] | `test_forecast_valid_request_parametrized_cities[New York]` | Parametrized | /forecast → 200 + schema (New York) |
+| TC-W-025[Sydney] | `test_forecast_valid_request_parametrized_cities[Sydney]` | Parametrized | /forecast → 200 + schema (Sydney) |
+| TC-W-025[Mumbai] | `test_forecast_valid_request_parametrized_cities[Mumbai]` | Parametrized | /forecast → 200 + schema (Mumbai) |
 
 ### `test_jsonplaceholder.py` — 26 tests, JSONPlaceholder API
 
@@ -206,12 +213,12 @@ Parametrized across all three environments (jsonplaceholder, countries, weather)
 
 | File | Tests | xfail | Technique coverage |
 |------|-------|-------|--------------------|
-| test_countries.py | 22 | 2 | All 10 techniques |
-| test_weather.py | 24 | 0 (6 SLA xfails during SLA violations) | All 10 techniques |
+| test_countries.py | 23 | 2 | All 10 techniques |
+| test_weather.py | 29 | 0 (6 SLA xfails during SLA violations) | All 10 techniques |
 | test_jsonplaceholder.py | 26 | 1 | All 10 techniques |
 | test_security.py | 24 | 0 | Negative, Security, Error Handling |
 | test_baseline.py | 12 | 0 | Positive, Performance, Security |
-| **Total** | **108** | **3+** | **10 techniques** |
+| **Total** | **114** | **3+** | **10 techniques** |
 
 ---
 
@@ -420,8 +427,8 @@ config/
 
 tests/
   conftest.py             env_config fixture (session-scoped), --env CLI flag, skip logic
-  test_countries.py       22 REST Countries tests
-  test_weather.py         24 Open-Meteo tests (6 xfail SLA violations)
+  test_countries.py       23 REST Countries tests
+  test_weather.py         29 Open-Meteo tests (6 xfail SLA violations)
   test_jsonplaceholder.py 26 JSONPlaceholder tests (AI-generated, 1 xfail)
   test_security.py        24 cross-environment security tests
   test_baseline.py        12 cross-environment baseline tests (4 × 3 envs)

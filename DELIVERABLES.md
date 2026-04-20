@@ -62,7 +62,7 @@
 
 - [x] `.github/workflows/ci.yml` triggers on push to any branch
 - [x] Python environment setup + `pip install --upgrade pip && pip install -e ".[test]"` (pyproject.toml)
-- [x] Full test suite runs (countries 22 + weather 24 + jsonplaceholder 26 + security 24 + baseline 12 = **108 tests**)
+- [x] Full test suite runs (countries 23 + weather 29 + jsonplaceholder 26 + security 24 + baseline 12 = **114 tests**)
 - [x] Test report uploaded as pipeline artifact
 - [x] Pipeline fails if any test fails or quality gate breached
 - [x] Bonus: test summary printed in job output
@@ -102,12 +102,12 @@
 
 - [x] GitHub repo: `sks-54/api-test-framework` (new, public)
 - [x] Phased PRs (one per phase, each Opus-reviewed before merge)
-- [x] `README.md` with setup, run instructions, 7 Mermaid architecture diagrams (Framework Overview, Parallel Pipeline, Eval Loop, CI Pipeline, Provider Discovery, Bug Lifecycle, Multi-Agent Sequence), design decisions, full 108-test breakdown
+- [x] `README.md` with setup, run instructions, 7 Mermaid architecture diagrams (Framework Overview, Parallel Pipeline, Eval Loop, CI Pipeline, Provider Discovery, Bug Lifecycle, Multi-Agent Sequence), design decisions, full 114-test breakdown
 - [x] `INSTALL.md` — platform-specific guide (macOS/Linux/Windows)
 - [x] `wiki/` — 6 reference pages (Components, Skills, Bug Lifecycle, Design Decisions, Rules, Troubleshooting)
 - [x] `pyproject.toml` — installable package (`pip install -e ".[test]"`)
 - [x] Tagged `v2.0.0.0` — initial full-framework release
-- [x] Tagged `v3.0.0` — final submission (108 tests, JSONPlaceholder env, parallel pipeline, 4-stage CI, 12 documented bugs)
+- [x] Tagged `v3.0.0` — final submission (114 tests, JSONPlaceholder env, parallel pipeline, 4-stage CI, 12 documented bugs)
 - [x] `ENHANCEMENTS.md` tracking post-v2.0.0.0 roadmap
 - [x] `wiki/Allure-Report-Guide.md` — Allure CLI setup, suite filtering, xfailed/xpassed interpretation
 - [x] `wiki/Test-Design-Techniques.md` — 10 techniques with live examples from the test suite

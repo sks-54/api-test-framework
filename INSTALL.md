@@ -198,7 +198,7 @@ ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 # Check imports
 python -c "from apitf.http_client import HttpClient; print('OK')"
 
-# Check test collection (should report 108+ tests, no import errors)
+# Check test collection (should report 114+ tests, no import errors)
 pytest --collect-only -q
 
 # Run the bug-marker guard (used by the pre-push hook)

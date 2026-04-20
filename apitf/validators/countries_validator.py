@@ -8,7 +8,7 @@ from apitf.validators.base_validator import BaseValidator, ValidationResult
 REQUIRED_FIELDS: tuple[str, ...] = (
     "tld", "cca2", "ccn3", "cca3", "cioc", "independent", "status",
     "unMember", "idd", "capital", "altSpellings", "region", "subregion",
-    "landlocked", "borders",
+    "landlocked", "borders", "name", "population", "currencies", "languages",
 )
 
 
@@ -21,4 +21,16 @@ class CountriesValidator(BaseValidator):
                 self._fail(f"Missing required field: {field!r}")
             elif data[field] is None:
                 self._fail(f"Field {field!r} must not be null")
+        name = data.get("name")
+        if isinstance(name, dict) and not name.get("common"):
+            self._fail("Field 'name.common' must be a non-empty string")
+        population = data.get("population")
+        if population is not None and not isinstance(population, int):
+            self._fail(f"Field 'population' must be int, got {type(population).__name__}")
+        currencies = data.get("currencies")
+        if isinstance(currencies, dict) and len(currencies) == 0:
+            self._fail("Field 'currencies' must not be an empty dict")
+        languages = data.get("languages")
+        if isinstance(languages, dict) and len(languages) == 0:
+            self._fail("Field 'languages' must not be an empty dict")
         return self._pass()

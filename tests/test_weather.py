@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 import allure
 from apitf.http_client import HttpClient
@@ -5,6 +8,10 @@ from apitf.validators.weather_validator import WeatherValidator
 from apitf.sla_exceptions import SLA_FAILURE_EXCEPTIONS
 
 pytestmark = [pytest.mark.weather, allure.suite("weather")]
+
+CITIES = json.loads(
+    (Path(__file__).parent.parent / "test_data" / "cities.json").read_text(encoding="utf-8")
+)
 
 REQUIRED_FIELDS = [
     "latitude",
@@ -238,6 +245,18 @@ def test_state_forecast_current_weather_key_present(env_config: dict) -> None:
         resp = client.get("/forecast", params={"latitude": 52.52, "longitude": 13.41, "current_weather": True})
     assert resp.status_code == 200
     assert "current_weather" in resp.json_body
+
+
+@allure.title("TC-025: Parametrized — /forecast for {city[name]} returns 200 and passes schema validation")
+@pytest.mark.flaky(reruns=2, reruns_delay=2)
+@pytest.mark.parametrize("city", CITIES, ids=[c["name"] for c in CITIES])
+def test_forecast_valid_request_parametrized_cities(city: dict, env_config: dict) -> None:
+    cfg = env_config["weather"]
+    with HttpClient(cfg["base_url"]) as client:
+        resp = client.get("/forecast", params={"latitude": city["latitude"], "longitude": city["longitude"]})
+    assert resp.status_code == 200
+    result = WeatherValidator().validate(resp.json_body)
+    assert result.passed, result.errors
 
 
 @allure.title("TC-W-024: xfail — /forecast without lat and lon should return 400 but returns 200 (BUG-002)")

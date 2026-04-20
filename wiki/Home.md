@@ -1,6 +1,6 @@
 # API Test Framework — Wiki
 
-Production-grade, config-driven multi-environment API test framework with **108 tests** across REST Countries, Open-Meteo, and JSONPlaceholder. New APIs added in 3 steps via YAML config — zero framework changes.
+Production-grade, config-driven multi-environment API test framework with **114 tests** across REST Countries, Open-Meteo, and JSONPlaceholder. New APIs added in 3 steps via YAML config — zero framework changes.
 
 ## Navigation
 
@@ -39,12 +39,12 @@ gh pr checks <N> --watch
 
 | Suite | File | Tests |
 |-------|------|-------|
-| countries | `test_countries.py` | 22 |
-| weather | `test_weather.py` | 24 |
+| countries | `test_countries.py` | 23 |
+| weather | `test_weather.py` | 29 |
 | jsonplaceholder | `test_jsonplaceholder.py` | 26 |
 | security | `test_security.py` | 24 (RFC 7231 method/header/content + OWASP injection) |
 | baseline | `test_baseline.py` | 12 (HTTPS, 2xx, 404, perf × 3 envs) |
-| **Total** | | **108** |
+| **Total** | | **114** |
 
 ## Known Bugs
 

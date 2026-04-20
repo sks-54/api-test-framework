@@ -11,16 +11,16 @@ All entries are append-only. Resolved entries are marked but never deleted.
 |-------|------|--------|----|-------|
 | 1 | Scaffold + Config | MERGED | #1 | environments.yaml, cities.json, pytest.ini |
 | 2 | Core Framework | MERGED | #2 | http_client, validators, spec_parsers, reporters |
-| 3 | Tests — Countries + Weather | MERGED | #4 | test_countries.py (22) + test_weather.py (24); 12 bugs filed |
+| 3 | Tests — Countries + Weather | MERGED | #4 | test_countries.py (23) + test_weather.py (29); 12 bugs filed |
 | 4 | Reporting | MERGED with Phase 2+3 | #4 | bug_reporter.py, deliverables_tracker.py, Allure config |
 | 5 | CI Pipeline | MERGED | #3 | 4-stage: smoke→platform→versions→gate; 6 jobs; Node.js 24 actions |
 | 6 | Claude Code Artifacts | MERGED with Phase 2 | #2 | rules/ (4 files), skills/ (4 files), scripts/advisor_review.py |
 | 7 | README + Tag v2.0.0.0 | DONE | — | README.md (691 lines, 7 diagrams); v2.0.0.0 tagged |
 | 8 | Provider Refactor | DONE | — | ClaudeCLIProvider + AnthropicProvider; lazy model selection |
-| 9 | JSONPlaceholder + Security + Baseline | DONE | — | 3 new test files; 58 additional tests; total 108 tests |
+| 9 | JSONPlaceholder + Security + Baseline | DONE | — | 3 new test files; 58 additional tests; total 114 tests |
 | 10 | Parallel Pipeline | DONE | — | ThreadPoolExecutor; per-resource workers; merge_bug_reports.py |
 | 11 | CI fix + Branch Protection | DONE | — | PR trigger no longer skips docs; main protected (Quality Gate required) |
-| 12 | Final Submission | DONE | — | v3.0.0 tagged; all docs updated; 108 tests; 12 bugs documented |
+| 12 | Final Submission | DONE | — | v3.0.0 tagged; all docs updated; 114 tests; 12 bugs documented |
 
 ---
 
