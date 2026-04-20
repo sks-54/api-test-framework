@@ -32,7 +32,7 @@ Claude Code reads the skill file, applies your inputs, and generates the output 
 
 1. Calls `SpecParserRegistry.parse(Path(SPEC_PATH))` with registered parsers
 2. Prints every extracted `EndpointSpec` object
-3. Updates `config/environments.yaml` with a new environment block (`base_url` only — thresholds left empty)
+3. Updates `config/environments.yaml` with a new environment block (`base_url`, `probe_path`, and default `thresholds.max_response_time: 5`)
 4. Prints the exact `/validator-generator` and `/test-generator` commands for each endpoint
 
 ### Sample Output
@@ -145,14 +145,15 @@ class MyApiValidator(BaseValidator):
 
 ### What It Generates
 
-`tests/test_myapi.py` with four tests:
+`tests/test_myapi.py` with five tests (scaffold mode):
 
-| Test | Technique | Assertion |
-|------|-----------|-----------|
-| `test_item_positive` | Equivalence | Valid ID → 200 + schema passes MyApiValidator |
-| `test_item_negative` | Negative | Invalid ID → exact 404 (never `>= 400`) |
-| `test_item_boundary` | Boundary | Edge-case input (ID=0, empty, max) → expected 4xx |
-| `test_item_performance` | Performance | `response_time_ms < env_config["myapi"]["thresholds"]["max_response_time"] * 1000` |
+| TC | Test | Technique | Assertion |
+|----|------|-----------|-----------|
+| TC-001 | `test_myapi_positive_baseline` | Positive | probe_path → 200 |
+| TC-002 | `test_myapi_performance` | Performance | `response_time_ms < env_config threshold` |
+| TC-003 | `test_myapi_schema` | Schema | response passes `{VALIDATOR_CLASS}` contract |
+| TC-004 | `test_myapi_https_enforced` | Security | `http://` base URL → `ValueError` |
+| TC-005 | `test_myapi_not_found` | Negative | Unknown path → 4xx |
 
 Every generated test includes:
 - `HttpClient` — never raw `requests`
@@ -191,7 +192,7 @@ You:    /test-generator
           VALIDATOR_CLASS=ChargeValidator
           DATA_FILE=test_data/charge_ids.json
 
-Claude: [writes tests/test_payments.py — 4 tests]
+Claude: [writes tests/test_payments.py — 5 tests (scaffold mode)]
 ```
 
 ```bash
@@ -205,7 +206,7 @@ allure serve allure-results
 ```
 
 **What you do NOT touch:**
-- `conftest.py` — `--env payments` auto-discovered from YAML
+- `conftest.py` (repo root) — `--env payments` auto-discovered from YAML; no changes needed
 - `HttpClient` — works for any HTTPS endpoint
 - `.github/workflows/ci.yml` — new tests run automatically on push
 - `BugReporter` — attaches on any failure

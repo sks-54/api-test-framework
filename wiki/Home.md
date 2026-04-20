@@ -12,7 +12,7 @@ Production-grade, config-driven multi-environment API test framework with **114 
 | [Bug Lifecycle](Bug-Lifecycle) | From failure → GitHub issue → xfail → resolution |
 | [Test Design Techniques](Test-Design-Techniques) | Boundary, equivalence, state-based, performance, security — with code |
 | [Design Decisions](Design-Decisions) | Key architectural choices and trade-offs |
-| [Rules Reference](Rules-Reference) | 27 framework rules with enforcement mechanism |
+| [Rules Reference](Rules-Reference) | 28 framework rules with enforcement mechanism |
 | [Troubleshooting](Troubleshooting) | Common errors, platform-specific issues, CI debugging |
 
 ## Quick Links

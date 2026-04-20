@@ -46,11 +46,14 @@ python3 -c "import py_compile; py_compile.compile('tests/test_countries.py')"
 
 ### `fixture 'env_config' not found`
 
-`conftest.py` is missing or the `pytest_plugins` line is wrong. Check:
+`conftest.py` is missing or the `pytest_plugins` line is wrong. The fixture lives in the **repo root** `conftest.py` (not `tests/conftest.py`). Check:
 
 ```python
-# tests/conftest.py must contain:
+# conftest.py (repo root) must contain:
 pytest_plugins = ["apitf.reporters.bug_reporter"]
+
+@pytest.fixture(scope="session")
+def env_config(request): ...
 ```
 
 ---

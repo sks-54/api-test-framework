@@ -1,6 +1,6 @@
 # Rules Reference
 
-Summary of the 27 framework rules. Full text in `.claude/rules/framework-rules.md`.
+Summary of the 28 framework rules. Full text in `.claude/rules/framework-rules.md`.
 
 ## Enforcement Summary
 
